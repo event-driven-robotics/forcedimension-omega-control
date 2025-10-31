@@ -1,5 +1,5 @@
-Python Framework to control Omega3 robot. 
-## omega_control — Python framework for Force Dimension Omega3
+Python Framework to control OmegaX robot. 
+## omega_control — Python framework for Force Dimension OmegaX
 
 This directory contains utilities and example code to control the Force Dimension
 Omega3 haptic device from Python. The code depends on the vendor SDK (ForceDimension)
@@ -88,7 +88,7 @@ python test_sdk.py
 ## Usage
 
 - See the Python modules under this repository for examples on how to initialise and
-  command the Omega3 device. Typical steps are: initialise the library, open a
+  command the OmegaX device. Typical steps are: initialise the library, open a
   connection to the device, then send force/position commands according to your
   control loop.
 
