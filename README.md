@@ -103,10 +103,13 @@ python test_sdk.py
   - Check USB connectivity and device power.
   - Confirm the device is supported by the SDK version you downloaded.
 
-## Contributing and contact
+## Credits and contact
 
-If you add example scripts, please keep them under the `omega_control/` folder and
-document usage in this README. For questions, open an issue in the repository.
+Authors:
+  - Simon Mueller-Cleve (simon.mullercleve@iit.it)
+  - Quentin Halbach (halbach.quentin@iit.it)
+
+Created at Istituto Italiano di Tecnologia (IIT)
 
 ## License
 
