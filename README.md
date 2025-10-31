@@ -2,7 +2,7 @@ Python Framework to control OmegaX robot.
 ## omega_control — Python framework for Force Dimension OmegaX
 
 This directory contains utilities and example code to control the Force Dimension
-Omega3 haptic device from Python. The code depends on the vendor SDK (ForceDimension)
+OmegaX haptic device from Python. The code depends on the vendor SDK (ForceDimension)
 and the Python package `forcedimension-core` which wraps the SDK.
 
 This README explains how to prepare a reproducible Python environment, configure the
