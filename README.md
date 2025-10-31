@@ -1,12 +1,28 @@
-Python Framework to control OmegaX robot. 
-## omega_control — Python framework for Force Dimension OmegaX
+# omega_control
 
-This directory contains utilities and example code to control the Force Dimension
-OmegaX haptic device from Python. The code depends on the vendor SDK (ForceDimension)
-and the Python package `forcedimension-core` which wraps the SDK.
+Python framework for controlling Force Dimension OmegaX haptic devices
 
-This README explains how to prepare a reproducible Python environment, configure the
-SDK library path on macOS and Linux, install the Python package, and run a quick smoke test.
+A comprehensive Python framework for controlling Force Dimension OmegaX haptic devices. This package provides high-level abstractions for device initialization, motion control, trajectory generation, force feedback, and real-time data recording.
+
+## Features
+
+- 🎮 **Easy device control** - High-level Python interface to Force Dimension SDK
+- 🎯 **Motion control** - Point-to-point movements and smooth trajectory tracking  
+- 📊 **Data recording** - High-frequency logging of position, velocity, and force data
+- 🔧 **Force control** - Adaptive force application and preloading capabilities
+- 📈 **Visualization** - Built-in plotting for recorded data analysis
+- 🛡️ **Safety features** - Proper device initialization and connection management
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick Start](#quick-start)  
+- [Usage Examples](#usage-examples)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Authors](#authors)
+- [License](#license)
 
 ## Prerequisites
 
@@ -17,7 +33,9 @@ SDK library path on macOS and Linux, install the Python package, and run a quick
 
 If you don't already have the SDK, get it from Force Dimension (https://www.forcedimension.com/software/sdk) and place it under `~/SDKs/ForceDimension/` or another location you control.
 
-## Create and activate the Conda environment
+## Installation
+
+### 1. Create and activate the Conda environment
 
 Open a terminal and run:
 
@@ -33,7 +51,29 @@ python -m pip install --upgrade pip
 python -m pip install forcedimension-core
 ```
 
-## Configure the SDK for this Conda environment (macOS)
+### 2. Configure the SDK environment variables
+
+#### Linux Configuration
+
+For Linux systems, use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH`:
+
+```bash
+conda env config vars set \
+  FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6" \
+  LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
+conda deactivate
+conda activate omega
+```
+
+Or export them temporarily:
+
+```bash
+export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
+python your_script.py
+```
+
+#### macOS Configuration
 
 The Force Dimension SDK provides native libraries that must be discoverable by the
 dynamic loader. We set environment variables attached to the Conda environment so they
@@ -62,7 +102,7 @@ export DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
 python your_script.py
 ```
 
-## Quick test (smoke test)
+## Quick Start
 
 Run a small Python snippet while the `omega` environment is active to verify the SDK
 loads and the device is visible:
@@ -85,12 +125,135 @@ Run this by saving it in a file (e.g. `test_sdk.py`) and running:
 python test_sdk.py
 ```
 
-## Usage
+## Usage Examples
 
-- See the Python modules under this repository for examples on how to initialise and
-  command the OmegaX device. Typical steps are: initialise the library, open a
-  connection to the device, then send force/position commands according to your
-  control loop.
+This repository includes several example scripts demonstrating different capabilities of the OmegaX control framework. All examples use the `OmegaRobot` class which provides a high-level interface to the Force Dimension SDK.
+
+### Basic Motion Control (`motion_example.py`)
+
+Simple point-to-point movements along each axis with data recording:
+
+```python
+from omega_control import OmegaRobot
+
+robot = OmegaRobot(verbose=False)
+robot.to_origin()
+
+robot.start_recording(freq=1000)   # Record at 1 kHz
+
+# Move along each axis and return to origin
+robot.set_pos([0.05, 0.0, 0.0])  # Move 5cm along X
+robot.to_origin()
+robot.set_pos([0.0, 0.05, 0.0])  # Move 5cm along Y
+robot.to_origin()
+robot.set_pos([0.0, 0.0, 0.05])  # Move 5cm along Z
+robot.to_origin()
+
+robot.stop_recording()
+filename = robot.save_log(filename="axis_finding")
+robot.close()
+
+# Visualize the recorded data
+robot.plot_log(filename=filename)
+```
+
+### Trajectory Control (`trajectory_example.py`)
+
+Continuous sinusoidal motion with real-time trajectory tracking:
+
+```python
+import math
+import time
+from omega_control import OmegaRobot
+
+# Parameters
+amplitude = 0.03   # 3 cm amplitude
+frequency = 0.25   # 0.25 Hz (4 second period)
+duration = 5.0     # Run for 5 seconds
+
+robot = OmegaRobot(verbose=False)
+robot.to_origin()
+robot.start_recording(freq=1000)
+
+# Generate smooth trajectory
+t0 = time.time()
+while (time.time() - t0) < duration:
+    t = time.time() - t0
+    x = amplitude * math.sin(2 * math.pi * frequency * t)
+    y = 1.5 * amplitude * math.sin(2 * math.pi * frequency * t)
+    z = 0.5 * amplitude * math.sin(2 * math.pi * frequency * t)
+    
+    robot.set_pos([x, y, z], tracking=True)  # Continuous tracking
+    time.sleep(0.001)  # ~1 kHz control loop
+
+robot.stop_recording()
+robot.save_log(filename="trajectory")
+robot.close()
+```
+
+### Data Recording (`data_recording_example.py`)
+
+High-frequency data collection of position, velocity, and force:
+
+```python
+import time
+from omega_control import OmegaRobot
+
+robot = OmegaRobot(verbose=True)
+robot.to_origin()
+
+# Record at high frequency
+robot.start_recording(freq=10000)  # 10 kHz sampling
+time.sleep(2)                      # Collect for 2 seconds
+robot.stop_recording()
+
+# Save and visualize data
+filename = robot.save_log()
+robot.close()
+robot.plot_log(filename=filename)
+```
+
+### Force Preloading (`preload_example.py`)
+
+Apply controlled force along an axis using adaptive positioning:
+
+```python
+from omega_control import OmegaRobot
+
+robot = OmegaRobot(verbose=True)
+robot.to_origin()
+
+# Move to starting position
+robot.set_pos([0.0, 0.0, -0.052])
+
+robot.start_recording(freq=1000)
+
+# Apply 1N downward force along Z-axis
+robot.preload(target_axis="z", target_force=-1.0)
+
+robot.stop_recording()
+robot.save_log(filename="preload_data")
+robot.close()
+```
+
+### Running the Examples
+
+To run any example:
+
+```bash
+python motion_example.py
+python trajectory_example.py  
+python data_recording_example.py
+python preload_example.py
+```
+
+Each example will:
+1. Initialize the robot connection
+2. Perform the specified motion/control task
+3. Record position, velocity, and force data
+4. Save data to HDF5 format
+5. Generate plots showing the recorded data
+6. Safely close the robot connection
 
 ## Troubleshooting
 
@@ -103,15 +266,21 @@ python test_sdk.py
   - Check USB connectivity and device power.
   - Confirm the device is supported by the SDK version you downloaded.
 
-## Credits and contact
+## Authors
 
-Authors:
-  - Simon Mueller-Cleve (simon.mullercleve@iit.it)
-  - Quentin Halbach (halbach.quentin@iit.it)
+**Maintainers:**
+- Simon Mueller-Cleve ([@smullercleve](mailto:simon.mullercleve@iit.it))
+- Quentin Halbach ([@qhalbach](mailto:halbach.quentin@iit.it))
 
-Created at Istituto Italiano di Tecnologia (IIT)
+**Institution:**  
+[Istituto Italiano di Tecnologia (IIT)](https://www.iit.it/)
+
+## Contributing
+
+We welcome contributions! Please feel free to submit issues, feature requests, or pull requests.
+
+For questions or support, please contact the maintainers above.
 
 ## License
 
-This repository follows the license specified at the project root. If no license is
-present, assume the code is not open-source until one is added.
+This project is licensed under the terms specified in the [LICENSE](LICENSE) file. Please refer to that file for detailed licensing information.

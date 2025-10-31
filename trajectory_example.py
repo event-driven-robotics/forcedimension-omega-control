@@ -1,6 +1,7 @@
-from omega_robot import OmegaRobot
-import time
 import math
+import time
+
+from omega_control import OmegaRobot
 
 if __name__ == "__main__":
 
@@ -12,13 +13,11 @@ if __name__ == "__main__":
     duration = 5.0    # run for 5 seconds
     # t0 = time.time()
 
-
     robot = OmegaRobot(verbose=False)
 
     robot.to_origin()
 
     robot.start_recording(freq=1000)   # record at 1 kHz
-
 
     # Trajectory Control
     t0 = time.time()
@@ -33,7 +32,6 @@ if __name__ == "__main__":
             robot.set_pos([x, y, z], tracking=True)
             time.sleep(0.001)  # ~1 kHz control loop
 
-
     except KeyboardInterrupt:
         pass
 
@@ -43,5 +41,3 @@ if __name__ == "__main__":
     robot.close()
 
     robot.plot_log(filename=filename)
-
-

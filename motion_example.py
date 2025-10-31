@@ -1,4 +1,4 @@
-from omega_robot import OmegaRobot
+from omega_control import OmegaRobot
 
 if __name__ == "__main__":
 
