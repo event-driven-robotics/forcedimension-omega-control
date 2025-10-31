@@ -1,0 +1,4 @@
+# Vendor SDK (install from Force Dimension; not on PyPI)
+forcedimension_core
+
+h5py
