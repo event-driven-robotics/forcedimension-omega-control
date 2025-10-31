@@ -6,12 +6,12 @@ A comprehensive Python framework for controlling Force Dimension OmegaX haptic d
 
 ## Features
 
-- 🎮 **Easy device control** - High-level Python interface to Force Dimension SDK
-- 🎯 **Motion control** - Point-to-point movements and smooth trajectory tracking  
-- 📊 **Data recording** - High-frequency logging of position, velocity, and force data
-- 🔧 **Force control** - Adaptive force application and preloading capabilities
-- 📈 **Visualization** - Built-in plotting for recorded data analysis
-- 🛡️ **Safety features** - Proper device initialization and connection management
+- **Easy device control** - High-level Python interface to Force Dimension SDK
+- **Motion control** - Point-to-point movements and smooth trajectory tracking  
+- **Data recording** - High-frequency logging of position, velocity, and force data
+- **Force control** - Adaptive force application and preloading capabilities
+- **Visualization** - Built-in plotting for recorded data analysis
+- **Safety features** - Proper device initialization and connection management
 
 ## Table of Contents
 
