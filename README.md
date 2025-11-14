@@ -17,7 +17,7 @@ A comprehensive Python framework for controlling Force Dimension OmegaX haptic d
 
 ## Prerequisites
 
-- macOS (ARM or Intel) or Linux with a supported Python 3.12 installation (we recommend using
+- macOS (ARM or Intel) or Linux with a supported Python 3.10 installation (we recommend using
   Conda to manage the environment).
 - Force Dimension SDK downloaded and extracted (example path: `~/SDKs/ForceDimension/sdk-3.17.6`).
 - A Conda distribution (miniconda or anaconda) or another virtual environment manager.
@@ -47,7 +47,7 @@ git clone https://github.com/event-driven-robotics/omega_control.git
 cd omega_control
 
 # Create and activate environment
-conda create -n omega python=3.12 pip -y
+conda create -n omega python=3.10 pip -y
 conda activate omega
 
 # Install in development mode
@@ -62,7 +62,7 @@ pip install .
 If you prefer the original manual setup:
 
 ```bash
-conda create -n omega python=3.12 pip -y
+conda create -n omega python=3.10 pip -y
 conda activate omega
 python -m pip install --upgrade pip
 python -m pip install forcedimension-core h5py numpy matplotlib
