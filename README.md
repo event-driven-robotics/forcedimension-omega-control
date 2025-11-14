@@ -32,7 +32,7 @@ You can install omega-control in several ways:
 
 ```bash
 # Create and activate a conda environment
-conda create -n omega python=3.12 pip -y
+conda create -n omega python=3.10 pip -y
 conda activate omega
 
 # Install omega-control and its dependencies

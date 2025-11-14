@@ -1023,6 +1023,51 @@ class OmegaRobot:
         except Exception as e:
             raise RuntimeError(f"Error saving log file: {e}")
 
+    def return_log(self) -> tuple[np.ndarray, list[str]]:
+        """
+        Return the current recorded data as a NumPy array without saving to file.
+
+        Returns
+        -------
+        tuple[np.ndarray, list[str]]
+            A tuple containing:
+            - `data`: 2D NumPy array of recorded samples with shape (n_samples, 10).
+            - `columns`: List of column names corresponding to the data.
+
+        Raises
+        ------
+        RuntimeError
+            If no data has been recorded.
+
+        Notes
+        -----
+        Data columns are:
+        ["time", "pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z", "force_x", "force_y", "force_z"]
+        
+        Example
+        -------
+        >>> robot.start_recording(freq=1000)
+        >>> # ... perform robot operations ...
+        >>> robot.stop_recording()
+        >>> data, columns = robot.return_log()
+        >>> print(f"Recorded {data.shape[0]} samples")
+        """
+        if not self.log_data:
+            raise RuntimeError("No data to return — start recording first.")
+
+        data = np.array(self.log_data)
+        columns = [
+            "time",
+            "pos_x", "pos_y", "pos_z",
+            "vel_x", "vel_y", "vel_z",
+            "force_x", "force_y", "force_z",
+        ]
+
+        if self.verbose:
+            print(f"Returning {data.shape[0]} recorded samples.")
+
+        return data, columns
+
     def load_log(self, filename: str = None) -> tuple[np.ndarray, list[str]]:
         """
         Load previously saved robot data from an HDF5 file.
