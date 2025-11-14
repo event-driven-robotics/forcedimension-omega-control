@@ -91,8 +91,8 @@ class OmegaRobot:
         self.open()
         self.initialize()
 
-        self.default_move_param = self.get_pos_param()
-        self.default_track_param = self.get_pos_param(tracking=True)
+        self.default_move_param = self.get_motion_param()
+        self.default_track_param = self.get_motion_param(tracking=True)
 
         # Initialize state variables
         self.pos = [0.0, 0.0, 0.0]
