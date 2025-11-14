@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omega-control"
+version = "1.0.0"
+description = "Python framework for controlling Force Dimension OmegaX haptic devices"
+readme = "README.md"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "Simon Mueller-Cleve", email = "simon.mullercleve@iit.it"},
+    {name = "Quentin Halbach", email = "halbach.quentin@iit.it"},
+]
+maintainers = [
+    {name = "Simon Mueller-Cleve", email = "simon.mullercleve@iit.it"},
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+]
+keywords = ["haptic", "robotics", "force-dimension", "omega", "control", "sdk"]
+dependencies = [
+    "forcedimension_core",
+    "h5py",
+    "numpy",
+    "matplotlib",
+]
+
+[project.urls]
+Homepage = "https://github.com/event-driven-robotics/omega_control"
+Repository = "https://github.com/event-driven-robotics/omega_control"
+Issues = "https://github.com/event-driven-robotics/omega_control/issues"
+Documentation = "https://github.com/event-driven-robotics/omega_control/blob/main/README.md"
+Institution = "https://www.iit.it/"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["omega_control*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

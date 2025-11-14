@@ -4,15 +4,6 @@ Python framework for controlling Force Dimension OmegaX haptic devices
 
 A comprehensive Python framework for controlling Force Dimension OmegaX haptic devices. This package provides high-level abstractions for device initialization, motion control, trajectory generation, force feedback, and real-time data recording.
 
-## Features
-
-- **Easy device control** - High-level Python interface to Force Dimension SDK
-- **Motion control** - Point-to-point movements and smooth trajectory tracking  
-- **Data recording** - High-frequency logging of position, velocity, and force data
-- **Force control** - Adaptive force application and preloading capabilities
-- **Visualization** - Built-in plotting for recorded data analysis
-- **Safety features** - Proper device initialization and connection management
-
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -35,23 +26,51 @@ If you don't already have the SDK, get it from Force Dimension (https://www.forc
 
 ## Installation
 
-### 1. Create and activate the Conda environment
+You can install omega-control in several ways:
 
-Open a terminal and run:
+### Option 1: Install from PyPI (Recommended)
+
+```bash
+# Create and activate a conda environment
+conda create -n omega python=3.12 pip -y
+conda activate omega
+
+# Install omega-control and its dependencies
+pip install omega-control
+```
+
+### Option 2: Install from source
+
+```bash
+# Clone the repository
+git clone https://github.com/event-driven-robotics/omega_control.git
+cd omega_control
+
+# Create and activate environment
+conda create -n omega python=3.12 pip -y
+conda activate omega
+
+# Install in development mode
+pip install -e .
+
+# Or install normally
+pip install .
+```
+
+### Option 3: Manual installation (Legacy)
+
+If you prefer the original manual setup:
 
 ```bash
 conda create -n omega python=3.12 pip -y
 conda activate omega
-```
-
-Upgrade pip and install the Python wrapper package from PyPI:
-
-```bash
 python -m pip install --upgrade pip
-python -m pip install forcedimension-core
+python -m pip install forcedimension-core h5py numpy matplotlib
 ```
 
-### 2. Configure the SDK environment variables
+### Configure the SDK environment variables
+
+**Important:** Regardless of the installation method, you must configure the Force Dimension SDK environment variables.
 
 #### Linux Configuration
 

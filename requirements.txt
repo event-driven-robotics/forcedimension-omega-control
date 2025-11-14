@@ -1,4 +1,7 @@
 # Vendor SDK (install from Force Dimension; not on PyPI)
 forcedimension_core
 
+# Core dependencies
 h5py
+numpy
+matplotlib
