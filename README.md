@@ -70,7 +70,7 @@ python -m pip install forcedimension-core h5py numpy matplotlib
 
 ### Configure the SDK environment variables
 
-**Important:** Regardless of the installation method, you must configure the Force Dimension SDK environment variables.
+**Important:** Regardless of the installation method, you must configure the Force Dimension SDK environment variables. To use the commands below it is nessecary to extract the SKD and copy the folder (dk-3.17.6) to the path ~/SDKs/ForceDimension. If the SDK lives somewhere else please change the path to exprt accordingly.
 
 #### Linux Configuration
 
@@ -90,6 +90,26 @@ Or export them temporarily:
 export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
 export LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
 python your_script.py
+```
+
+Finally, ensure you can find the Omega robot using:
+```
+lsusb
+```
+THe output should look like this:
+```
+Bus 001 Device 006: ID 1451:0402 Force Dimension omega.x haptic device
+```
+1451: Vendor
+Vendor: Product
+
+Now we must add a udev rule. To do so run:
+```
+sudo nano /etc/udev/rules.d/99-forcedimension.rules
+```
+and add 
+```
+SUBSYSTEM=="usb", ATTR{idVendor}=="1451", ATTR{idProduct}=="0401", GROUP="plugdev", MODE="0660"
 ```
 
 #### macOS Configuration

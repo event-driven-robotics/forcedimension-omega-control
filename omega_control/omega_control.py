@@ -694,6 +694,12 @@ class OmegaRobot:
 
         :raises RuntimeError:
             If setting default parameters fails.
+        
+        :Note:
+            default parameters are:
+            - vmax = 1.0 m/s
+            - amax = 1.0 m/s2
+            - jerk = 1.0 m/s3
         """
         try:
             if not tracking:

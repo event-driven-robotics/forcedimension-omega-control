@@ -1,0 +1,3 @@
+# Force Dimension Omega / Sigma devices
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1451", MODE="0666"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1451", MODE="0666"
