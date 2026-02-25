@@ -810,7 +810,7 @@ class OmegaRobot:
         axis_list = ["x", "y", "z"]
         axis_idx = axis_list.index(target_axis)
 
-        move_params = self.get_pos_param()
+        move_params = self.get_motion_param()
 
         self.set_default_pos_param()
 
