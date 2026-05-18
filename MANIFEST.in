@@ -6,6 +6,7 @@ include pyproject.toml
 
 # Include example scripts
 include *.py
+include omega_control/scripts/*.sh
 
 # Exclude build artifacts and cache files
 global-exclude *.pyc
