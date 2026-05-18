@@ -54,7 +54,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            # Add console scripts here if needed in the future
+            'omega-control-doctor=omega_control.doctor:main',
         ],
     },
     include_package_data=True,

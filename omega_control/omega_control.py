@@ -44,6 +44,10 @@ import threading
 import os
 import time
 from datetime import datetime
+from omega_control._sdk_config import configure_forcedimension_sdk
+
+configure_forcedimension_sdk()
+
 import forcedimension_core.dhd as dhd
 import forcedimension_core.drd as drd
 import h5py

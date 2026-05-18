@@ -29,6 +29,10 @@ Institution:
     Istituto Italiano di Tecnologia (IIT)
 """
 
+from ._sdk_config import configure_forcedimension_sdk
+
+configure_forcedimension_sdk()
+
 from .omega_control import OmegaRobot
 
 __version__ = "1.0.0"

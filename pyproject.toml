@@ -39,6 +39,9 @@ dependencies = [
     "matplotlib",
 ]
 
+[project.scripts]
+omega-control-doctor = "omega_control.doctor:main"
+
 [project.urls]
 Homepage = "https://github.com/event-driven-robotics/omega_control"
 Repository = "https://github.com/event-driven-robotics/omega_control"
