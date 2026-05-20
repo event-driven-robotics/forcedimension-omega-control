@@ -1,0 +1,2 @@
+[console_scripts]
+omega-control-doctor = omega_control.doctor:main

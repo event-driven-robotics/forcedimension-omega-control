@@ -65,10 +65,9 @@ A comprehensive Python framework for controlling Force Dimension OmegaX haptic d
 
 ## Prerequisites
 
-- macOS (ARM or Intel) or Linux with a supported Python 3.10 installation (we recommend using
-  Conda to manage the environment).
-- Force Dimension SDK downloaded and extracted (example path: `~/SDKs/ForceDimension/sdk-3.17.6`).
-- A Conda distribution (miniconda or anaconda) or another virtual environment manager.
+- macOS (ARM or Intel), Linux, or Windows with a supported Python 3.10 installation.
+- A virtual environment named `omega` or another environment manager of your choice.
+- Force Dimension SDK downloaded and extracted, for example `~/SDKs/ForceDimension/sdk-3.17.6`.
 
 If you don't already have the SDK, get it from Force Dimension (https://www.forcedimension.com/software/sdk) and place it under `~/SDKs/ForceDimension/` or another location you control.
 
@@ -79,9 +78,9 @@ You can install omega-control in several ways:
 ### Option 1: Install from PyPI (Recommended)
 
 ```bash
-# Create and activate a conda environment
-conda create -n omega python=3.10 pip -y
-conda activate omega
+# Create and activate a virtual environment
+python3 -m venv omega
+source omega/bin/activate
 
 # Install omega-control and its dependencies
 pip install omega-control
@@ -95,8 +94,8 @@ git clone https://github.com/event-driven-robotics/omega_control.git
 cd omega_control
 
 # Create and activate environment
-conda create -n omega python=3.10 pip -y
-conda activate omega
+python3 -m venv omega
+source omega/bin/activate
 
 # Install in development mode
 pip install -e .
@@ -110,35 +109,53 @@ pip install .
 If you prefer the original manual setup:
 
 ```bash
-conda create -n omega python=3.10 pip -y
-conda activate omega
+python3 -m venv omega
+source omega/bin/activate
 python -m pip install --upgrade pip
 python -m pip install forcedimension-core h5py numpy matplotlib
 ```
 
 ### Configure the SDK environment variables
 
-**Important:** Regardless of the installation method, you must configure the Force Dimension SDK environment variables. To use the commands below it is nessecary to extract the SKD and copy the folder (dk-3.17.6) to the path ~/SDKs/ForceDimension. If the SDK lives somewhere else please change the path to exprt accordingly.
+**Important:** The package auto-detects the SDK root in common locations and accepts both
+`FDSDK` and `FORCEDIM_SDK`. If your SDK is installed somewhere unusual, point either variable
+at the SDK root before importing the package. The `omega-control-doctor` command below can
+confirm what the package sees after installation.
 
-#### Linux Configuration
-
-For Linux systems, use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH`:
+#### Quick check
 
 ```bash
-conda env config vars set \
-  FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6" \
-  LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
-conda deactivate
-conda activate omega
+omega-control-doctor
 ```
 
-Or export them temporarily:
+#### Helper script for `workon`
+
+If you use `virtualenvwrapper`, source the helper after `workon omega` instead of exporting
+variables by hand each time:
+
+```bash
+source /path/to/omega_control/omega_control/scripts/omega_env.sh "$HOME/SDKs/ForceDimension/sdk-3.17.6"
+```
+
+You can also add that line to your virtualenv's `postactivate` hook and `omega_env_deactivate`
+to the matching `postdeactivate` hook if you want the setup and cleanup to happen automatically.
+
+#### Linux
+
+For Linux systems, set the SDK root and, if needed, the native library path inside the active
+shell session for `omega`:
 
 ```bash
 export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FDSDK="$FORCEDIM_SDK"
 export LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
-python your_script.py
 ```
+
+If you use a shell activation script, you can add the same exports there so they load whenever
+`omega` is activated.
+
+If import errors persist, run `omega-control-doctor` and verify that the reported SDK root matches
+the one on disk.
 
 Finally, ensure you can find the Omega robot using:
 ```
@@ -163,17 +180,15 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="1451", ATTR{idProduct}=="0401", GROUP="plugde
 #### macOS Configuration
 
 The Force Dimension SDK provides native libraries that must be discoverable by the
-dynamic loader. We set environment variables attached to the Conda environment so they
-are persistent whenever the environment is activated.
+dynamic loader. Set the environment variables in the active `omega` shell session or in
+that environment's activation script so they are restored automatically.
 
 Adjust `FORCEDIM_SDK` to the SDK path you have on disk. For example:
 
 ```bash
-conda env config vars set \
-  FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6" \
-  DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
-conda deactivate
-conda activate omega
+export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FDSDK="$FORCEDIM_SDK"
+export DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
 ```
 
 Notes:
@@ -185,9 +200,28 @@ Notes:
 
 ```bash
 export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FDSDK="$FORCEDIM_SDK"
 export DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
 python your_script.py
 ```
+
+If you are on Intel macOS, the SDK may use the `mac-x86_64-clang` library directory instead.
+
+#### Windows
+
+On Windows, activate your `omega` environment and set `FDSDK` to the SDK root after installing
+the Force Dimension SDK. The package will try to resolve the SDK root from that environment
+variable, and `omega-control-doctor` can confirm what it sees.
+
+```powershell
+$env:Path = "C:\SDKs\ForceDimension\sdk-3.17.6\bin;$env:Path"
+$env:FDSDK = "C:\SDKs\ForceDimension\sdk-3.17.6"
+python -m pip install omega-control
+omega-control-doctor
+```
+
+If the import still fails on Windows, check that the SDK's native DLLs are available to your
+shell session before launching Python.
 
 ## Quick Start
 
@@ -345,8 +379,11 @@ Each example will:
 ## Troubleshooting
 
 - "Loader error" or `OSError` when importing:
-  - Verify `FORCEDIM_SDK` points to the SDK root and `DYLD_LIBRARY_PATH` to the correct
-    library directory for your platform (the `lib/release/<platform>` subfolder).
+  - Verify `FDSDK` or `FORCEDIM_SDK` points to the SDK root and `LD_LIBRARY_PATH`/
+    `DYLD_LIBRARY_PATH` points to the correct library directory for your platform
+    (the `lib/release/<platform>` subfolder).
+  - On Windows, verify `FDSDK` points to the SDK root and that the SDK DLLs are visible to the
+    current shell session.
   - Ensure you installed the version of `forcedimension-core` compatible with your SDK.
 
 - Device count is 0:
