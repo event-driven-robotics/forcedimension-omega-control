@@ -40,7 +40,7 @@ setup(
         'Topic :: System :: Hardware :: Hardware Drivers',
     ],
     keywords='haptic, robotics, force-dimension, omega, control, sdk',
-    python_requires='>=3.10',
+    python_requires='>=3.10,<=3.12',
     packages=find_packages(),
     install_requires=requirements,
     extras_require={

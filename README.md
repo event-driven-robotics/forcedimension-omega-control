@@ -17,7 +17,8 @@ A comprehensive Python framework for controlling Force Dimension OmegaX haptic d
 
 ## Prerequisites
 
-- macOS (ARM or Intel), Linux, or Windows with a supported Python 3.10 installation.
+- macOS (ARM or Intel), Linux, or Windows with Python 3.10 to 3.12 (inclusive).
+- `forcedimension_core` currently supports Python 3.10 to 3.12 only.
 - A virtual environment named `omega` or another environment manager of your choice.
 - Force Dimension SDK downloaded and extracted, for example `~/SDKs/ForceDimension/sdk-3.17.6`.
 
@@ -113,20 +114,37 @@ Finally, ensure you can find the Omega robot using:
 ```
 lsusb
 ```
-THe output should look like this:
+The output should look like this:
 ```
 Bus 001 Device 006: ID 1451:0402 Force Dimension omega.x haptic device
 ```
 1451: Vendor
 Vendor: Product
 
-Now we must add a udev rule. To do so run:
+Install the udev rule with the helper script included in this repository:
+
+```bash
+sudo ./omega_control/scripts/install_udev_rules.sh
+```
+
+This installs `omega_control/udev/99-forcedimension.rules` into
+`/etc/udev/rules.d/`, reloads udev rules, and triggers the update.
+
+If you prefer manual installation, create:
 ```
 sudo nano /etc/udev/rules.d/99-forcedimension.rules
 ```
-and add 
+and add:
 ```
-SUBSYSTEM=="usb", ATTR{idVendor}=="1451", ATTR{idProduct}=="0401", GROUP="plugdev", MODE="0660"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1451", MODE="0666"
+KERNEL=="hidraw*", ATTRS{idVendor}=="1451", MODE="0666"
+```
+
+Then reload rules (if you used the manual path):
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
 ```
 
 #### macOS Configuration

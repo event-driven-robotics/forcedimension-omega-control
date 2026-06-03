@@ -1,4 +1,5 @@
-# Vendor SDK (install from Force Dimension; not on PyPI)
+# Vendor SDK dependency (supports Python 3.10-3.12 only)
+# Install Force Dimension SDK separately as documented in README.
 forcedimension_core
 
 # Core dependencies
