@@ -113,8 +113,8 @@ class OmegaRobot:
         self.open()
         self.initialize()
 
-        self.default_move_param = self.get_motion_param()
-        self.default_track_param = self.get_motion_param(tracking=True)
+        self.default_move_param = self.get_pos_param()
+        self.default_track_param = self.get_pos_param(tracking=True)
 
         # Initialize state variables
         self.pos = [0.0, 0.0, 0.0]
@@ -560,7 +560,7 @@ class OmegaRobot:
         result = drd.hold(self.device_id)
         return result
 
-    def get_motion_param(self, tracking: bool = False):
+    def get_pos_param(self, tracking: bool = False):
         """
         Retrieves the Cartesian trajectory generation parameters for the robot.
 
@@ -814,7 +814,7 @@ class OmegaRobot:
         axis_list = ["x", "y", "z"]
         axis_idx = axis_list.index(target_axis)
 
-        move_params = self.get_motion_param()
+        move_params = self.get_pos_param()
 
         self.set_default_pos_param()
 
