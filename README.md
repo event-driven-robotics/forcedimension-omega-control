@@ -306,7 +306,7 @@ robot.plot_log(filename=filename)
 
 ### Force Preloading (`preload_example.py`)
 
-Apply controlled force along an axis using adaptive positioning:
+Apply controlled force along an axis using a PID outer position loop:
 
 ```python
 from omega_control import OmegaRobot
@@ -319,8 +319,16 @@ robot.set_pos([0.0, 0.0, -0.052])
 
 robot.start_recording(freq=1000)
 
-# Apply 1N downward force along Z-axis
-robot.preload(target_axis="z", target_force=-1.0)
+# Apply 1N downward force along Z-axis with a PID outer loop
+result = robot.preload(
+    target_axis="z",
+    target_force=-1.0,
+    kp=1e-3,
+    ki=0.0,
+    max_force=2.0,
+    max_displacement=0.01,
+)
+print(result.status.value, result.final_force, result.final_position)
 
 robot.stop_recording()
 robot.save_log(filename="preload_data")

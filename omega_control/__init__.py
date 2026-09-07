@@ -33,7 +33,8 @@ from ._sdk_config import configure_forcedimension_sdk
 
 configure_forcedimension_sdk()
 
-from .omega_control import OmegaRobot
+from .omega_control import OmegaRobot, PreloadResult, PreloadSample
+from .pid import PIDConfig, PIDController, PIDOutput, PreloadStatus
 
 __version__ = "1.0.0"
 __author__ = "Simon Mueller-Cleve, Quentin Halbach"
@@ -41,4 +42,12 @@ __email__ = "simon.mullercleve@iit.it, halbach.quentin@iit.it"
 __license__ = "GPL-3.0"
 __copyright__ = "Copyright (c) 2025 Istituto Italiano di Tecnologia (IIT)"
 
-__all__ = ["OmegaRobot"]
+__all__ = [
+    "OmegaRobot",
+    "PIDConfig",
+    "PIDController",
+    "PIDOutput",
+    "PreloadResult",
+    "PreloadSample",
+    "PreloadStatus",
+]

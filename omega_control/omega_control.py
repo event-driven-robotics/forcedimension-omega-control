@@ -40,10 +40,13 @@ Last Modified:
     2025-11-17
 """
 
-import threading
+import math
 import os
+import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
+
 from omega_control._sdk_config import configure_forcedimension_sdk
 
 configure_forcedimension_sdk()
@@ -51,8 +54,49 @@ configure_forcedimension_sdk()
 import forcedimension_core.dhd as dhd
 import forcedimension_core.drd as drd
 import h5py
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
+from omega_control.pid import PIDConfig, PIDController, PreloadStatus
+
+
+@dataclass(frozen=True)
+class PreloadSample:
+    """One sample captured by the preload force-control loop."""
+
+    time: float
+    setpoint: float
+    measured_force: float
+    filtered_force: float
+    error: float
+    proportional: float
+    integral: float
+    derivative: float
+    force_rate: float
+    velocity: float
+    commanded_position: float
+    saturated: bool
+
+
+@dataclass(frozen=True)
+class PreloadResult:
+    """Outcome and telemetry from a preload acquisition."""
+
+    status: PreloadStatus
+    target_axis: str
+    target_force: float
+    final_position: float
+    final_force: float
+    elapsed_time: float
+    iterations: int
+    samples: tuple[PreloadSample, ...]
+    message: str = ""
+
+    @property
+    def reached(self) -> bool:
+        """Whether the requested preload settled successfully."""
+
+        return self.status is PreloadStatus.SETTLED
 
 
 class OmegaRobot:
@@ -746,188 +790,337 @@ class OmegaRobot:
         if self.verbose:
             print(f"Setting target force to {target}.")
 
-    def preload(self, target_axis, target_force,
-                base_step=1e-5, tolerance=0.05, max_iter=5000,
-                sleep_time=0.001, max_step=1e-4,
-                adapt_gain=1e-4, plot_results=False):
-        """
-        Gradually apply a preload along a specified axis until a target force is reached.
+    def preload(
+        self,
+        target_axis: str,
+        target_force: float,
+        *,
+        kp: float = 1e-3,
+        ki: float = 0.0,
+        kd: float = 0.0,
+        control_freq: float = 250.0,
+        tolerance: float = 0.05,
+        settle_time: float = 0.25,
+        timeout: float = 10.0,
+        max_velocity: float = 0.002,
+        max_displacement: float = 0.01,
+        max_force: float | None = None,
+        force_filter_tau: float = 0.01,
+        derivative_filter_tau: float = 0.01,
+        force_ramp_rate: float = 2.0,
+        integral_limit: float = 10.0,
+        control_direction: int = 1,
+        settle_force_rate: float | None = None,
+        plot_results: bool = False,
+    ) -> PreloadResult:
+        """Acquire a force preload using a PID outer position-control loop.
 
-        This method moves the robot end-effector along a specified Cartesian axis
-        using an adaptive step size, based on the difference between the current and
-        target force. The process continues until the target force is achieved within
-        the specified tolerance or until the maximum number of iterations is reached.
+        The PID output is an axis velocity in m/s. It is integrated into a
+        non-blocking DRD position-tracking target, leaving the device's position
+        regulator as the inner loop. The method returns after the target force
+        has remained within ``tolerance`` for ``settle_time``.
 
-        During execution, the error, applied step size, and measured forces are logged.
-        Optionally, these values can be plotted at the end of the procedure.
+        ``control_direction`` describes the local force/position relationship:
+        use ``1`` when increasing position increases measured force, and ``-1``
+        when it decreases measured force. Determine this conservatively for the
+        end-effector and contact geometry before using a substantial preload.
 
-        Parameters
-        ----------
-        target_axis : str
-            The axis along which to apply the preload ('x', 'y', or 'z').
-        target_force : float
-            The desired force to reach along the specified axis (in Newtons).
-        base_step : float, optional
-            Minimum incremental step size along the axis (default: 1e-5 m).
-        tolerance : float, optional
-            Acceptable deviation from the target force (default: 0.05 N).
-        max_iter : int, optional
-            Maximum number of iterations to attempt (default: 5000).
-        sleep_time : float, optional
-            Delay in seconds between iterations (default: 0.001 s).
-        max_step : float, optional
-            Maximum allowed step size along the axis (default: 1e-4 m).
-        adapt_gain : float, optional
-            Gain factor for adaptive step scaling based on force error (default: 1e-4).
-        plot_results : bool, optional
-            If True, generates a plot of force error, steps, and measured forces at the end (default: False).
-
-        Returns
-        -------
-        float or bool
-            - The final position along the specified axis if the target force is reached.
-            - False if the maximum number of iterations is reached without achieving the target force.
-
-        Notes
-        -----
-        - The method temporarily overrides the current trajectory parameters and restores
-        the previous motion parameters upon completion.
-        - Force measurements must be available from the device for the preload to function.
-        - Adaptive step size is clipped between `base_step` and `max_step` to ensure safe motion.
-
-        Examples
-        --------
-        >>> # Apply 2N downward force along Z-axis
-        >>> final_pos = robot.preload('z', target_force=-2.0, plot_results=True)
-        >>> if final_pos:
-        >>>     print(f"Preload achieved at z={final_pos:.4f} m")
-        >>> 
-        >>> # Apply gentle 0.5N force along X-axis with custom parameters
-        >>> robot.preload('x', target_force=0.5, tolerance=0.01, max_iter=1000)
-        >>> 
-        >>> # Quick preload with larger steps
-        >>> robot.preload('y', target_force=1.0, base_step=5e-5, max_step=2e-4)
+        The returned :class:`PreloadResult` distinguishes successful settling,
+        timeout, force and travel limits, invalid measurements, and device errors.
+        On every exit the current position is held.
         """
 
-        self.get_pos()
-        current_pos = self.pos.copy()
-        axis_list = ["x", "y", "z"]
-        axis_idx = axis_list.index(target_axis)
+        if (
+            not isinstance(target_axis, str)
+            or len(target_axis) != 1
+            or target_axis.lower() not in "xyz"
+        ):
+            raise ValueError("target_axis must be one of 'x', 'y', or 'z'")
+        target_axis = target_axis.lower()
+        axis_idx = {"x": 0, "y": 1, "z": 2}[target_axis]
 
-        move_params = self.get_pos_param()
+        numeric_parameters = {
+            "target_force": target_force,
+            "control_freq": control_freq,
+            "tolerance": tolerance,
+            "settle_time": settle_time,
+            "timeout": timeout,
+            "max_velocity": max_velocity,
+            "max_displacement": max_displacement,
+            "force_filter_tau": force_filter_tau,
+            "force_ramp_rate": force_ramp_rate,
+            "integral_limit": integral_limit,
+        }
+        if not all(
+            isinstance(value, (int, float)) and math.isfinite(value)
+            for value in numeric_parameters.values()
+        ):
+            raise ValueError("preload parameters must be finite numbers")
+        if control_freq <= 0.0:
+            raise ValueError("control_freq must be positive")
+        if tolerance < 0.0 or settle_time < 0.0:
+            raise ValueError("tolerance and settle_time must be non-negative")
+        if timeout <= 0.0:
+            raise ValueError("timeout must be positive")
+        if max_velocity <= 0.0 or max_displacement <= 0.0:
+            raise ValueError("max_velocity and max_displacement must be positive")
+        if force_filter_tau < 0.0 or force_ramp_rate <= 0.0:
+            raise ValueError("filter time must be non-negative and ramp rate positive")
+        if control_direction not in (-1, 1):
+            raise ValueError("control_direction must be 1 or -1")
+        if settle_force_rate is not None and (
+            not math.isfinite(settle_force_rate) or settle_force_rate < 0.0
+        ):
+            raise ValueError("settle_force_rate must be non-negative or None")
 
-        self.set_default_pos_param()
+        if max_force is None:
+            max_force = max(2.0 * abs(target_force), abs(target_force) + 1.0)
+        if not math.isfinite(max_force) or max_force <= 0.0:
+            raise ValueError("max_force must be finite and positive")
 
-        # Storage for analysis
-        errors = []
-        steps = []
-        forces = []
+        controller = PIDController(
+            PIDConfig(
+                kp=kp,
+                ki=ki,
+                kd=kd,
+                output_limit=max_velocity,
+                integral_limit=integral_limit,
+                derivative_filter_tau=derivative_filter_tau,
+            )
+        )
+        period = 1.0 / control_freq
+        started = time.monotonic()
+        previous_time = started
+        next_deadline = started
+        samples: list[PreloadSample] = []
+        status = PreloadStatus.DEVICE_ERROR
+        message = ""
+        final_position = math.nan
+        final_force = math.nan
+        initial_position = math.nan
+        commanded_position = [math.nan, math.nan, math.nan]
+        filtered_force = math.nan
+        ramped_setpoint = math.nan
+        settled_for = 0.0
 
-        for i in range(max_iter):
-            self.get_force()
-            current_force = self.force[axis_idx]
-            error = target_force - current_force
+        try:
+            commanded_position = self.get_pos().copy()
+            initial_position = commanded_position[axis_idx]
+            initial_force = self.get_force()[axis_idx]
+            final_force = initial_force
+            if not math.isfinite(initial_position) or not math.isfinite(initial_force):
+                status = PreloadStatus.INVALID_MEASUREMENT
+                message = "Initial position or force measurement is not finite"
+            else:
+                filtered_force = initial_force
+                ramped_setpoint = initial_force
 
-            errors.append(error)
-            forces.append(current_force)
+                while True:
+                    now = time.monotonic()
+                    elapsed = now - started
+                    if elapsed >= timeout:
+                        status = PreloadStatus.TIMEOUT
+                        message = f"Preload did not settle within {timeout:.3f} s"
+                        break
 
-            if abs(error) <= tolerance:
-                if self.verbose:
-                    print(
-                        f"Target force reached: {current_force:.4f} N (iteration {i})")
-                if plot_results:
-                    self._plot_preload_results(
-                        errors, steps, forces, target_force)
+                    actual_dt = now - previous_time
+                    dt = period if not samples else min(actual_dt, 2.0 * period)
+                    dt = max(dt, period * 0.1)
+                    previous_time = now
 
-                self.set_pos_param(
-                    vmax=move_params[0], amax=move_params[1], jerk=move_params[2])
-                return self.get_pos()[axis_idx]
+                    measured_force = self.get_force()[axis_idx]
+                    final_force = measured_force
+                    if not math.isfinite(measured_force):
+                        status = PreloadStatus.INVALID_MEASUREMENT
+                        message = "Force measurement is not finite"
+                        break
+                    if abs(measured_force) > max_force:
+                        status = PreloadStatus.MAX_FORCE
+                        message = (
+                            f"Measured force {measured_force:.4f} N exceeded "
+                            f"the {max_force:.4f} N safety limit"
+                        )
+                        break
 
-            # Direction: positive if need to increase force, negative if need to decrease
-            direction = np.sign(error)
+                    ramp_delta = max(
+                        -force_ramp_rate * dt,
+                        min(force_ramp_rate * dt, target_force - ramped_setpoint),
+                    )
+                    ramped_setpoint += ramp_delta
 
-            # Adaptive step: proportional to |error|
-            adaptive_step = base_step + adapt_gain * abs(error)
-            adaptive_step = np.clip(adaptive_step, base_step, max_step)
-            steps.append(adaptive_step)
+                    filter_alpha = (
+                        1.0
+                        if force_filter_tau == 0.0
+                        else dt / (force_filter_tau + dt)
+                    )
+                    filtered_force += filter_alpha * (
+                        measured_force - filtered_force
+                    )
+                    update = controller.update(ramped_setpoint, filtered_force, dt)
+                    velocity = control_direction * update.output
+                    proposed_position = commanded_position[axis_idx] + velocity * dt
 
-            # Move along axis
-            current_pos[axis_idx] += direction * adaptive_step
-            self.set_pos(current_pos, block=True)
+                    if abs(proposed_position - initial_position) > max_displacement:
+                        status = PreloadStatus.MAX_DISPLACEMENT
+                        message = (
+                            f"Preload would exceed the {max_displacement:.6f} m "
+                            "travel limit"
+                        )
+                        break
 
-            if self.verbose:
-                print(
-                    f"[Iter {i}] Force={current_force:.4f} N | Error={error:.4f} | Step={adaptive_step:.6f}")
+                    commanded_position[axis_idx] = proposed_position
+                    tracking_result = drd.trackPos(commanded_position)
+                    if isinstance(tracking_result, (int, float)) and tracking_result < 0:
+                        raise RuntimeError("DRD rejected the position tracking command")
 
-            time.sleep(sleep_time)
+                    final_position = commanded_position[axis_idx]
+                    samples.append(
+                        PreloadSample(
+                            time=elapsed,
+                            setpoint=ramped_setpoint,
+                            measured_force=measured_force,
+                            filtered_force=filtered_force,
+                            error=update.error,
+                            proportional=update.proportional,
+                            integral=update.integral,
+                            derivative=update.derivative,
+                            force_rate=update.measurement_rate,
+                            velocity=velocity,
+                            commanded_position=final_position,
+                            saturated=update.saturated,
+                        )
+                    )
+
+                    at_final_setpoint = math.isclose(
+                        ramped_setpoint,
+                        target_force,
+                        rel_tol=0.0,
+                        abs_tol=1e-12,
+                    )
+                    force_is_steady = (
+                        settle_force_rate is None
+                        or abs(update.measurement_rate) <= settle_force_rate
+                    )
+                    if (
+                        at_final_setpoint
+                        and abs(target_force - filtered_force) <= tolerance
+                        and force_is_steady
+                    ):
+                        settled_for += dt
+                    else:
+                        settled_for = 0.0
+
+                    if settled_for >= settle_time:
+                        status = PreloadStatus.SETTLED
+                        message = (
+                            f"Target force remained within {tolerance:.4f} N "
+                            f"for {settle_time:.3f} s"
+                        )
+                        break
+
+                    next_deadline += period
+                    sleep_for = next_deadline - time.monotonic()
+                    if sleep_for > 0.0:
+                        time.sleep(sleep_for)
+                    else:
+                        # Resynchronise after an overrun instead of accumulating lag.
+                        next_deadline = time.monotonic()
+
+        except Exception as exc:
+            status = PreloadStatus.DEVICE_ERROR
+            message = f"Preload control failed: {exc}"
+        finally:
+            try:
+                hold_result = self.hold()
+                if isinstance(hold_result, (int, float)) and hold_result < 0:
+                    raise RuntimeError("DRD failed to hold the current position")
+            except Exception as exc:
+                if message:
+                    message += f"; also failed to hold position: {exc}"
+                else:
+                    message = f"Failed to hold position: {exc}"
+                status = PreloadStatus.DEVICE_ERROR
+
+            # Prefer actual post-hold state in the result, but retain the last
+            # valid control-loop values if the device cannot be read again.
+            try:
+                observed_position = self.get_pos()[axis_idx]
+                observed_force = self.get_force()[axis_idx]
+                if math.isfinite(observed_position):
+                    final_position = observed_position
+                if math.isfinite(observed_force):
+                    final_force = observed_force
+            except Exception:
+                pass
+
+        elapsed_time = time.monotonic() - started
+        if math.isnan(final_position) and math.isfinite(initial_position):
+            final_position = initial_position
+        result = PreloadResult(
+            status=status,
+            target_axis=target_axis,
+            target_force=target_force,
+            final_position=final_position,
+            final_force=final_force,
+            elapsed_time=elapsed_time,
+            iterations=len(samples),
+            samples=tuple(samples),
+            message=message,
+        )
 
         if self.verbose:
             print(
-                f"Preload stopped after {max_iter} steps. Final force: {self.force[axis_idx]:.4f} N")
-
+                f"Preload {result.status.value}: force={result.final_force:.4f} N, "
+                f"position={result.final_position:.6f} m, "
+                f"elapsed={result.elapsed_time:.3f} s"
+            )
         if plot_results:
-            self._plot_preload_results(errors, steps, forces, target_force)
+            self._plot_preload_results(result)
+        return result
 
-        return False
+    def _plot_preload_results(
+        self,
+        result: PreloadResult,
+        save: bool = False,
+        filename: str | None = None,
+    ) -> None:
+        """Plot force, PID output, and commanded position for a preload."""
 
-    def _plot_preload_results(self, errors, steps, forces, target_force, save=False, filename=None):
-        """
-        Plot convergence data from the preload routine.
+        times = [sample.time for sample in result.samples]
+        measured = [sample.measured_force for sample in result.samples]
+        filtered = [sample.filtered_force for sample in result.samples]
+        setpoints = [sample.setpoint for sample in result.samples]
+        velocities = [sample.velocity for sample in result.samples]
+        positions = [sample.commanded_position for sample in result.samples]
 
-        Displays force error and adaptive step size over iterations,
-        allowing visualization of how the robot approaches the target force.
+        fig, axes = plt.subplots(3, 1, figsize=(9, 8), sharex=True)
+        axes[0].plot(times, measured, alpha=0.45, label="measured")
+        axes[0].plot(times, filtered, label="filtered")
+        axes[0].plot(times, setpoints, linestyle="--", label="setpoint")
+        axes[0].set_ylabel("Force (N)")
+        axes[0].legend()
+        axes[0].grid(True, linestyle="--", alpha=0.4)
 
-        Parameters
-        ----------
-        errors : list of float
-            Force errors at each iteration (target_force - measured_force).
-        steps : list of float
-            Step sizes applied along the axis at each iteration.
-        forces : list of float
-            Measured force along the preload axis at each iteration.
-        target_force : float
-            The target force applied along the axis.
-        save : bool, optional
-            If True, saves the figure to a file instead of displaying it (default: False).
-        filename : str, optional
-            Path to save the figure. If None, defaults to "preload_convergence.png".
-        """
+        axes[1].plot(times, velocities, color="tab:red")
+        axes[1].axhline(0.0, color="gray", linewidth=1)
+        axes[1].set_ylabel("Velocity (m/s)")
+        axes[1].grid(True, linestyle="--", alpha=0.4)
 
-        iterations = range(len(errors))
+        axes[2].plot(times, positions, color="tab:green")
+        axes[2].set_xlabel("Time (s)")
+        axes[2].set_ylabel(f"{result.target_axis.upper()} target (m)")
+        axes[2].grid(True, linestyle="--", alpha=0.4)
 
-        fig, ax1 = plt.subplots(figsize=(8, 6))
-
-        # Plot force error
-        color1 = 'tab:blue'
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Force Error (N)', color=color1)
-        ax1.plot(iterations, errors, color=color1,
-                 label='Force Error', linewidth=1.5)
-        ax1.axhline(0, color='gray', linestyle='--', linewidth=1)
-        ax1.tick_params(axis='y', labelcolor=color1)
-        ax1.grid(True, linestyle='--', alpha=0.5)
-
-        # Plot adaptive step size on secondary y-axis
-        ax2 = ax1.twinx()
-        color2 = 'tab:red'
-        ax2.set_ylabel('Step Size (m)', color=color2)
-        ax2.plot(iterations[:len(steps)], steps,
-                 color=color2, label='Step Size', linewidth=1.5)
-        ax2.tick_params(axis='y', labelcolor=color2)
-
-        # Optional: add legend combining both axes
-        lines, labels = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines + lines2, labels + labels2, loc='upper right')
-
-        plt.title(
-            f"Adaptive Preload Convergence (Target Force = {target_force:.3f} N)")
+        fig.suptitle(
+            f"PID preload: {result.status.value} "
+            f"(target {result.target_force:.3f} N)"
+        )
         fig.tight_layout()
 
         if save:
             if filename is None:
-                filename = "preload_convergence.png"
-            plt.savefig(filename, dpi=300)
+                filename = "preload_pid_convergence.png"
+            fig.savefig(filename, dpi=300)
             plt.close(fig)
         else:
             plt.show()

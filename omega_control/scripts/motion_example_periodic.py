@@ -1,4 +1,5 @@
 import time
+
 from omega_control import OmegaRobot
 
 if __name__ == "__main__":
