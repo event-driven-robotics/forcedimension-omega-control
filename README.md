@@ -1,6 +1,5 @@
-# omega_control
-
-Python framework for controlling Force Dimension OmegaX haptic devices
+# Omega Control
+*Python control library for Force Dimension omega.x haptic devices*
 
 A comprehensive Python framework for controlling Force Dimension OmegaX haptic devices. This package provides high-level abstractions for device initialization, motion control, trajectory generation, force feedback, and real-time data recording.
 
