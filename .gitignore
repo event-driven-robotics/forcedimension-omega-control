@@ -1,13 +1,30 @@
 .vscode/*
-__pycache__
+__pycache__/
 *.h5
 poetry.lock
 
-# Python packaging and test artifacts
+# Python packaging artifacts
 /build/
 /dist/
+/.eggs/
+*.egg
 *.egg-info/
-.pytest_cache/
+*.whl
+/pip-wheel-metadata/
+
+# Python caches and virtual environments
 *.py[cod]
 .venv/
 venv/
+
+# Test, coverage, and lint tool output
+.pytest_cache/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
