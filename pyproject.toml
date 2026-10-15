@@ -59,6 +59,10 @@ dev = [
     "mypy>=1.0.0",
 ]
 
+# Poetry package discovery (distribution name differs from Python import name)
+[tool.poetry]
+packages = [{ include = "omega_control" }]
+
 [tool.setuptools]
 include-package-data = true
 
