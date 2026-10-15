@@ -1,93 +1,90 @@
-"""Force Dimension SDK path detection and environment bootstrapping."""
-
+"""SDK discovery without importing the vendor bindings or requiring hardware."""
 from __future__ import annotations
 
+import json
 import os
 import platform
+import tempfile
 from pathlib import Path
 
+SETUP_HINT = ("Force Dimension SDK not found. Run 'omega-control setup-sdk' "
+              "or 'omega-control setup-sdk --sdk-path PATH'.")
 
-def _default_library_subdir() -> str:
-    """Return the platform-specific library subdirectory shipped with the SDK."""
+class SDKNotFoundError(RuntimeError):
+    """The separately installed vendor SDK could not be found."""
 
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-
+def library_subdir() -> str:
+    system, machine = platform.system().lower(), platform.machine().lower()
     if system == "darwin":
-        if machine in {"arm64", "aarch64"}:
-            return "lib/release/mac-arm64-clang"
-        return "lib/release/mac-x86_64-clang"
-
-    if system == "windows":
-        return ""
-
+        return "lib/release/mac-arm64-clang" if machine in ("arm64", "aarch64") else "lib/release/mac-x86_64-clang"
     if system == "linux":
-        if machine in {"x86_64", "amd64"}:
-            return "lib/release/linux-x86_64-gcc"
-        if machine in {"aarch64", "arm64"}:
-            return "lib/release/linux-aarch64-gcc"
-        if machine.startswith("armv7") or machine == "armv7l":
-            return "lib/release/linux-armv7-gcc"
-
+        arch = {"amd64": "x86_64", "arm64": "aarch64", "armv7l": "armv7"}.get(machine, machine)
+        return "lib/release/linux-" + arch + "-gcc"
     return ""
 
-
-def _candidate_sdk_roots() -> list[Path]:
-    """Return possible SDK root directories ordered from most to least likely."""
-
-    candidates: list[Path] = []
-
-    for env_var in ("FDSDK", "FORCEDIM_SDK"):
-        value = os.environ.get(env_var)
-        if value:
-            candidates.append(Path(value).expanduser())
-
+def config_path() -> Path:
     home = Path.home()
-    search_roots = [
-        home / "SDKs" / "ForceDimension",
-        home / "ForceDimension",
-        Path("/opt/ForceDimension"),
-        Path("/usr/local/ForceDimension"),
-    ]
-    for root in search_roots:
-        if root.exists():
-            candidates.extend(sorted(root.glob("sdk-*"), reverse=True))
+    system = platform.system().lower()
+    if system == "windows":
+        base = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
+    elif system == "darwin":
+        base = home / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
+    return base / "omega-control" / "sdk.json"
 
-    unique_candidates: list[Path] = []
-    seen: set[Path] = set()
+def valid_sdk_root(path: Path) -> bool:
+    return path.is_dir() and (path / "lib").is_dir() and (path / "include").is_dir()
+
+def find_sdk_root() -> Path | None:
+    candidates = []
+    for key in ("FDSDK", "FORCEDIM_SDK"):
+        if os.environ.get(key):
+            candidates.append(Path(os.environ[key]).expanduser())
+    try:
+        saved = json.loads(config_path().read_text(encoding="utf-8")).get("sdk_root")
+        if isinstance(saved, str):
+            candidates.append(Path(saved).expanduser())
+    except (OSError, ValueError, TypeError):
+        pass
+    home = Path.home()
+    parents = [home / "SDKs" / "ForceDimension", home / "ForceDimension",
+               Path("/opt/ForceDimension"), Path("/usr/local/ForceDimension")]
+    if platform.system().lower() == "windows":
+        for key in ("ProgramFiles", "ProgramFiles(x86)"):
+            if os.environ.get(key):
+                base = Path(os.environ[key])
+                parents += [base / "Force Dimension", base / "ForceDimension"]
+    elif platform.system().lower() == "darwin":
+        parents += [Path("/Applications/Force Dimension"), Path("/Applications/ForceDimension")]
+    for parent in parents:
+        if parent.exists():
+            candidates += sorted(parent.glob("sdk-*"), reverse=True)
     for candidate in candidates:
-        resolved = candidate.expanduser()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique_candidates.append(resolved)
+        if valid_sdk_root(candidate):
+            return candidate.resolve()
+    return None
 
-    return unique_candidates
-
+def save_sdk_root(path: Path) -> Path:
+    root = path.expanduser().resolve()
+    if not valid_sdk_root(root):
+        raise ValueError(f"Not a vendor SDK root (expected lib/ and include/): {root}")
+    config = config_path()
+    config.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".sdk-", dir=config.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump({"sdk_root": str(root)}, output)
+        os.replace(tmp, config)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return root
 
 def configure_forcedimension_sdk() -> Path:
-    """Populate the SDK environment variables when a usable installation is found.
-
-    The Force Dimension Python bindings expect the SDK root to be exposed through
-    ``FDSDK``. Some installation guides and user setups use ``FORCEDIM_SDK`` instead,
-    so we bridge that gap here and also look in a few standard SDK install locations.
-    """
-
-    sdk_root = os.environ.get("FDSDK") or os.environ.get("FORCEDIM_SDK")
-
-    if not sdk_root:
-        for candidate in _candidate_sdk_roots():
-            library_subdir = _default_library_subdir()
-            if not library_subdir or (candidate / library_subdir).exists():
-                sdk_root = str(candidate)
-                break
-
-    if not sdk_root:
-        raise RuntimeError(
-            "Force Dimension SDK not found. Set FDSDK or FORCEDIM_SDK to the SDK root, "
-            "for example /home/you/SDKs/ForceDimension/sdk-3.17.1."
-        )
-
-    os.environ.setdefault("FDSDK", sdk_root)
-    os.environ.setdefault("FORCEDIM_SDK", sdk_root)
-    return Path(sdk_root)
+    root = find_sdk_root()
+    if root is None:
+        raise SDKNotFoundError(SETUP_HINT)
+    os.environ["FDSDK"] = str(root)
+    os.environ["FORCEDIM_SDK"] = str(root)
+    return root

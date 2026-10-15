@@ -9,6 +9,7 @@ A Python library providing high-level control of Force Dimension omega.x haptic 
 
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+  - [SDK setup](#sdk-setup-after-installing-the-python-library)
 - [Quick Start](#quick-start)  
 - [Usage Examples](#usage-examples)
 - [Troubleshooting](#troubleshooting)
@@ -21,9 +22,9 @@ A Python library providing high-level control of Force Dimension omega.x haptic 
 - macOS (ARM or Intel), Linux, or Windows with Python 3.10 to 3.12 (inclusive).
 - `forcedimension_core` currently supports Python 3.10 to 3.12 only.
 - A virtual environment named `omega` or another environment manager of your choice.
-- Force Dimension SDK downloaded and extracted, for example `~/SDKs/ForceDimension/sdk-3.17.6`.
+- Force Dimension's vendor SDK, installed via the guided setup command below or manually.
 
-If you don't already have the SDK, get it from Force Dimension (https://www.forcedimension.com/software/sdk) and place it under `~/SDKs/ForceDimension/` or another location you control.
+The vendor SDK is **not bundled** with this Python package. An opt-in setup command can download it directly from [Force Dimension](https://www.forcedimension.com/software/sdk).
 
 ## Installation
 
@@ -54,17 +55,81 @@ directly from GitHub (it is not yet available on PyPI):
 poetry add "git+https://github.com/event-driven-robotics/forcedimension-omega-control.git"
 
 # Run the SDK diagnostic inside the Poetry environment
-poetry run omega-control-doctor
+poetry run omega-control doctor
 ```
 
 Use the same Python API as other installations: `from omega_control import OmegaRobot`.
-Poetry installs the Python dependency; **the vendor Force Dimension SDK must still be
-installed separately** and discoverable through `FDSDK` or `FORCEDIM_SDK`
-(see [SDK configuration](#configure-the-sdk-environment-variables)).
+Poetry installs the Python dependencies; run `poetry run omega-control setup-sdk`
+for guided vendor SDK installation (see below).
 
 This library currently uses **setuptools** as its build backend. You do not need to
 convert it to a Poetry-built package to use it *from* a Poetry-managed project.
 
+
+### SDK setup (after installing the Python library)
+
+The Force Dimension SDK is **third-party software**, not included in this
+repository or downloaded during \`pip install\` / \`poetry add\`. The library can
+be installed without a connected robot or SDK. When you first request the
+hardware API without an SDK, it explains how to install one.
+
+Run the guided SDK installer:
+
+\`\`\`bash
+omega-control setup-sdk          # detects OS and CPU, asks before downloading
+omega-control doctor             # checks SDK discovery; no robot required
+\`\`\`
+
+For a Poetry-managed environment, use:
+
+\`\`\`bash
+poetry run omega-control setup-sdk
+poetry run omega-control doctor
+\`\`\`
+
+For noninteractive use, \`omega-control setup-sdk --yes\` approves the vendor
+download without prompting. **Nothing is downloaded automatically during
+Python package installation or import.** The installer currently targets
+the official Force Dimension SDK **3.17.7** from the
+[manufacturer's download page](https://www.forcedimension.com/software/sdk).
+Review the manufacturer's license terms before proceeding.
+
+Installation behavior depends on the operating system:
+
+- **Linux (x86_64, aarch64, armv7):** Downloads the official \`.tar.gz\` and
+  extracts it into \`~/SDKs/ForceDimension/sdk-3.17.7/\`, then saves the path
+  in per-user configuration. No administrator access is required to extract
+  the SDK. USB/udev rules may still require \`sudo\` (see below).
+- **macOS (Intel or Apple Silicon):** Downloads the official \`.dmg\` to
+  \`~/Downloads/\` and opens it. Follow the vendor's installation steps;
+  the CLI does not silently install system software.
+- **Windows (x86/x64):** Downloads the official \`.exe\` to the Downloads
+  folder and starts the vendor installer. Complete the installer (and
+  any required driver/UAC prompts) yourself.
+
+Already have a vendor SDK installed, or did the native installer put it
+somewhere unusual? Register its root directory (the one containing
+\`lib/\` and \`include/\`) without downloading anything:
+
+\`\`\`bash
+omega-control setup-sdk --sdk-path /path/to/sdk-3.17.7
+omega-control doctor
+\`\`\`
+
+A registered path is remembered in user configuration (Linux:
+\`~/.config/omega-control/sdk.json\`, macOS:
+\`~/Library/Application Support/omega-control/sdk.json\`, Windows:
+\`%APPDATA%\\omega-control\\sdk.json\`). The library sets \`FDSDK\` and
+\`FORCEDIM_SDK\` **within its own Python process** before loading the vendor
+bindings; it does not edit shell startup files or set permanent machine-wide
+environment variables.
+
+\`omega-control-doctor\` is retained as a backward-compatible alias for
+\`omega-control doctor\`. Diagnostics check SDK discovery, **not** physical
+device availability or a full hardware integration test. If you see
+\`Force Dimension SDK not found\`, use \`omega-control setup-sdk\` or
+\`--sdk-path\` as above. On macOS and Windows, rerun diagnostics after
+completing the vendor's installer.
 
 ### Install dependencies manually (legacy)
 
@@ -79,15 +144,16 @@ python -m pip install forcedimension-core h5py numpy matplotlib
 
 ### Configure the SDK environment variables
 
-**Important:** The package auto-detects the SDK root in common locations and accepts both
-`FDSDK` and `FORCEDIM_SDK`. If your SDK is installed somewhere unusual, point either variable
-at the SDK root before importing the package. The `omega-control-doctor` command below can
-confirm what the package sees after installation.
+**Important:** After `omega-control setup-sdk`, the SDK root is remembered and
+discovered automatically by the Python library. Existing `FDSDK` or
+`FORCEDIM_SDK` environment variables and standard installation locations
+remain supported. If an SDK is installed outside those locations, use
+`omega-control setup-sdk --sdk-path PATH` to register it.
 
 #### Quick check
 
 ```bash
-omega-control-doctor
+omega-control doctor
 ```
 
 #### Helper script for `workon`
@@ -204,8 +270,7 @@ shell session before launching Python.
 
 ## Quick Start
 
-Run a small Python snippet while the `omega` environment is active to verify the SDK
-loads and the device is visible:
+After guided setup, run `omega-control doctor` to confirm the SDK path. To check the vendor SDK version and attached hardware, run a small Python snippet:
 
 ```python
 import forcedimension_core.dhd as dhd

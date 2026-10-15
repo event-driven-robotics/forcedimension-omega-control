@@ -1,44 +1,28 @@
-"""Diagnostic helper for Force Dimension SDK setup."""
-
+"""SDK discovery diagnostics; safe when no SDK or robot is installed."""
 from __future__ import annotations
-
 import os
 import platform
-from pathlib import Path
-
-from omega_control._sdk_config import configure_forcedimension_sdk
-
+from ._sdk_config import SETUP_HINT, configure_forcedimension_sdk, library_subdir
 
 def main() -> int:
-    """Print the resolved SDK settings and a short next-step hint."""
-
     print("omega-control SDK doctor")
     print(f"platform: {platform.system()} {platform.release()} ({platform.machine()})")
     print(f"FDSDK: {os.environ.get('FDSDK', '<unset>')}")
     print(f"FORCEDIM_SDK: {os.environ.get('FORCEDIM_SDK', '<unset>')}")
-
     try:
-        sdk_root = configure_forcedimension_sdk()
-    except Exception as exc:
-        print(f"status: not ready ({exc})")
+        root = configure_forcedimension_sdk()
+    except RuntimeError:
+        print("status: SDK not installed or not discoverable")
+        print(SETUP_HINT)
         return 1
-
-    print(f"status: ready")
-    print(f"sdk_root: {sdk_root}")
-
-    library_paths = [
-        "lib/release/linux-x86_64-gcc",
-        "lib/release/mac-arm64-clang",
-        "lib/release/mac-x86_64-clang",
-    ]
-    print("candidate library directories:")
-    for relative_path in library_paths:
-        candidate_path = sdk_root / Path(relative_path)
-        print(f"- {candidate_path} {'(exists)' if candidate_path.exists() else '(missing)'}")
-
-    print("next step: if importing omega_control still fails, set FDSDK to the SDK root before launch")
+    print(f"sdk_root: {root}")
+    subdir = library_subdir()
+    if subdir and not (root / subdir).is_dir():
+        print(f"status: expected native library directory missing: {root / subdir}")
+        return 1
+    print("status: SDK directory detected")
+    print("note: native library loading and connected hardware were not tested")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

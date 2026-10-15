@@ -54,6 +54,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'omega-control=omega_control.cli:main',
             'omega-control-doctor=omega_control.doctor:main',
         ],
     },
