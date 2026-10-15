@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "forcedimension-omega-control"
 version = "1.0.0"
 description = "Python control library for Force Dimension omega.x haptic devices"
 readme = "README.md"
-license = {text = "GPL-3.0"}
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [
     {name = "Simon Mueller-Cleve", email = "simon.mullercleve@iit.it"},
     {name = "Quentin Halbach", email = "halbach.quentin@iit.it"},
@@ -20,7 +21,6 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
@@ -50,14 +50,12 @@ Issues = "https://github.com/event-driven-robotics/forcedimension-omega-control/
 Documentation = "https://github.com/event-driven-robotics/forcedimension-omega-control/blob/main/README.md"
 Institution = "https://www.iit.it/"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "flake8>=6.0.0",
-    "mypy>=1.0.0",
-]
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0.0"
+pytest-cov = ">=4.0.0"
+black = ">=23.0.0"
+flake8 = ">=6.0.0"
+mypy = ">=1.0.0"
 
 # Poetry package discovery (distribution name differs from Python import name)
 [tool.poetry]
