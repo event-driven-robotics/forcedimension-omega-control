@@ -23,12 +23,11 @@ setup(
     maintainer='Simon Mueller-Cleve',
     maintainer_email='simon.mullercleve@iit.it',
     url='https://github.com/event-driven-robotics/forcedimension-omega-control',
-    license='GPL-3.0',
+    license='GPL-3.0-only',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS',
         'Programming Language :: Python :: 3',
@@ -43,15 +42,6 @@ setup(
     python_requires='>=3.10,<3.13',
     packages=find_packages(),
     install_requires=requirements,
-    extras_require={
-        'dev': [
-            'pytest>=7.0.0',
-            'pytest-cov>=4.0.0',
-            'black>=23.0.0',
-            'flake8>=6.0.0',
-            'mypy>=1.0.0',
-        ],
-    },
     entry_points={
         'console_scripts': [
             'omega-control=omega_control.cli:main',
