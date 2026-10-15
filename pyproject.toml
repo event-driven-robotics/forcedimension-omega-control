@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     {name = "Simon Mueller-Cleve", email = "simon.mullercleve@iit.it"},
 ]
-requires-python = ">=3.10,<=3.12"
+requires-python = ">=3.10,<3.13"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",

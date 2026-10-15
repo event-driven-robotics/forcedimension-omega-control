@@ -1,7 +1,9 @@
 # Force Dimension Omega Control
 *Python control library for Force Dimension omega.x haptic devices.*
 
-A comprehensive Python framework for controlling Force Dimension OmegaX haptic devices. This package provides high-level abstractions for device initialization, motion control, trajectory generation, force feedback, and real-time data recording.
+A Python library providing high-level control of Force Dimension omega.x haptic devices, including device initialization, motion and trajectory control, force preloading, and real-time data recording.
+
+> **Unofficial, community-maintained project.** Built on the Force Dimension SDK; not affiliated with or endorsed by Force Dimension.
 
 ## Table of Contents
 
@@ -25,9 +27,7 @@ If you don't already have the SDK, get it from Force Dimension (https://www.forc
 
 ## Installation
 
-You can install omega-control in several ways:
-
-## Installation
+The distribution is not yet published on PyPI. Install directly from GitHub or a local checkout.
 
 ### Install from GitHub
 
@@ -44,9 +44,9 @@ cd forcedimension-omega-control
 pip install -e .
 ```
 
-### Option 3: Manual installation (Legacy)
+### Install dependencies manually (legacy)
 
-If you prefer the original manual setup:
+The following installs dependencies only, not this library:
 
 ```bash
 python3 -m venv omega
@@ -74,7 +74,7 @@ If you use `virtualenvwrapper`, source the helper after `workon omega` instead o
 variables by hand each time:
 
 ```bash
-source /path/to/omega_control/omega_control/scripts/omega_env.sh "$HOME/SDKs/ForceDimension/sdk-3.17.6"
+source /path/to/forcedimension-omega-control/omega_control/scripts/omega_env.sh "$HOME/SDKs/ForceDimension/sdk-3.17.6"
 ```
 
 You can also add that line to your virtualenv's `postactivate` hook and `omega_env_deactivate`
@@ -173,7 +173,7 @@ variable, and `omega-control-doctor` can confirm what it sees.
 ```powershell
 $env:Path = "C:\SDKs\ForceDimension\sdk-3.17.6\bin;$env:Path"
 $env:FDSDK = "C:\SDKs\ForceDimension\sdk-3.17.6"
-python -m pip install omega-control
+python -m pip install git+https://github.com/event-driven-robotics/forcedimension-omega-control.git
 omega-control-doctor
 ```
 
@@ -327,10 +327,10 @@ robot.close()
 To run any example:
 
 ```bash
-python motion_example.py
-python trajectory_example.py  
-python data_recording_example.py
-python preload_example.py
+python omega_control/scripts/motion_example.py
+python omega_control/scripts/trajectory_example.py
+python omega_control/scripts/data_recording_example.py
+python omega_control/scripts/preload_example.py
 ```
 
 Each example will:
@@ -372,4 +372,4 @@ For questions or support, please contact the maintainers above.
 
 ## License
 
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file. Please refer to that file for detailed licensing information.
+This project is distributed under the GNU General Public License v3.0 ([GPL-3.0](LICENSE)).

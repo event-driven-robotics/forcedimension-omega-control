@@ -2,3 +2,12 @@
 __pycache__
 *.h5
 poetry.lock
+
+# Python packaging and test artifacts
+/build/
+/dist/
+*.egg-info/
+.pytest_cache/
+*.py[cod]
+.venv/
+venv/
