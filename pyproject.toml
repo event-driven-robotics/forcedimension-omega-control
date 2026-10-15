@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "omega-control"
+name = "forcedimension-omega-control"
 version = "1.0.0"
-description = "Python framework for controlling Force Dimension OmegaX haptic devices"
+description = "Python control library for Force Dimension omega.x haptic devices"
 readme = "README.md"
 license = {text = "GPL-3.0"}
 authors = [
@@ -43,10 +43,10 @@ dependencies = [
 omega-control-doctor = "omega_control.doctor:main"
 
 [project.urls]
-Homepage = "https://github.com/event-driven-robotics/omega_control"
-Repository = "https://github.com/event-driven-robotics/omega_control"
-Issues = "https://github.com/event-driven-robotics/omega_control/issues"
-Documentation = "https://github.com/event-driven-robotics/omega_control/blob/main/README.md"
+Homepage = "https://github.com/event-driven-robotics/forcedimension-omega-control"
+Repository = "https://github.com/event-driven-robotics/forcedimension-omega-control"
+Issues = "https://github.com/event-driven-robotics/forcedimension-omega-control/issues"
+Documentation = "https://github.com/event-driven-robotics/forcedimension-omega-control/blob/main/README.md"
 Institution = "https://www.iit.it/"
 
 [project.optional-dependencies]

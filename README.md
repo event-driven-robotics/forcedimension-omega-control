@@ -1,5 +1,5 @@
-# Omega Control
-*Python control library for Force Dimension omega.x haptic devices*
+# Force Dimension Omega Control
+*Python control library for Force Dimension omega.x haptic devices.*
 
 A comprehensive Python framework for controlling Force Dimension OmegaX haptic devices. This package provides high-level abstractions for device initialization, motion control, trajectory generation, force feedback, and real-time data recording.
 
@@ -27,33 +27,21 @@ If you don't already have the SDK, get it from Force Dimension (https://www.forc
 
 You can install omega-control in several ways:
 
-### Option 1: Install from PyPI (Recommended)
+## Installation
+
+### Install from GitHub
 
 ```bash
-# Create and activate a virtual environment
-python3 -m venv omega
-source omega/bin/activate
-
-# Install omega-control and its dependencies
-pip install omega-control
+pip install git+https://github.com/event-driven-robotics/forcedimension-omega-control.git
 ```
 
-### Option 2: Install from source
+### Install from source
 
 ```bash
-# Clone the repository
-git clone https://github.com/event-driven-robotics/omega_control.git
-cd omega_control
+git clone https://github.com/event-driven-robotics/forcedimension-omega-control.git
+cd forcedimension-omega-control
 
-# Create and activate environment
-python3 -m venv omega
-source omega/bin/activate
-
-# Install in development mode
 pip install -e .
-
-# Or install normally
-pip install .
 ```
 
 ### Option 3: Manual installation (Legacy)

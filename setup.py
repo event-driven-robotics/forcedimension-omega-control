@@ -13,16 +13,16 @@ with open(os.path.join(this_directory, 'requirements.txt'), encoding='utf-8') as
     requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
 setup(
-    name='omega-control',
+    name='forcedimension-omega-control',
     version='1.0.0',
-    description='Python framework for controlling Force Dimension OmegaX haptic devices',
+    description='Python control library for Force Dimension omega.x haptic devices',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='Simon Mueller-Cleve, Quentin Halbach',
     author_email='simon.mullercleve@iit.it, halbach.quentin@iit.it',
     maintainer='Simon Mueller-Cleve',
     maintainer_email='simon.mullercleve@iit.it',
-    url='https://github.com/event-driven-robotics/omega_control',
+    url='https://github.com/event-driven-robotics/forcedimension-omega-control',
     license='GPL-3.0',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
@@ -60,9 +60,9 @@ setup(
     include_package_data=True,
     zip_safe=False,
     project_urls={
-        'Bug Reports': 'https://github.com/event-driven-robotics/omega_control/issues',
-        'Source': 'https://github.com/event-driven-robotics/omega_control',
-        'Documentation': 'https://github.com/event-driven-robotics/omega_control/blob/main/README.md',
+        'Bug Reports': 'https://github.com/event-driven-robotics/forcedimension-omega-control/issues',
+        'Source': 'https://github.com/event-driven-robotics/forcedimension-omega-control',
+        'Documentation': 'https://github.com/event-driven-robotics/forcedimension-omega-control/blob/main/README.md',
         'Institution': 'https://www.iit.it/',
     },
 )
