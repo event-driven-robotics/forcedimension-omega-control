@@ -44,6 +44,28 @@ cd forcedimension-omega-control
 pip install -e .
 ```
 
+### Using Poetry in an existing project
+
+If your application already uses [Poetry](https://python-poetry.org/), add this library
+directly from GitHub (it is not yet available on PyPI):
+
+```bash
+# Run from the root of your Poetry-managed application (Python 3.10--3.12)
+poetry add "git+https://github.com/event-driven-robotics/forcedimension-omega-control.git"
+
+# Run the SDK diagnostic inside the Poetry environment
+poetry run omega-control-doctor
+```
+
+Use the same Python API as other installations: `from omega_control import OmegaRobot`.
+Poetry installs the Python dependency; **the vendor Force Dimension SDK must still be
+installed separately** and discoverable through `FDSDK` or `FORCEDIM_SDK`
+(see [SDK configuration](#configure-the-sdk-environment-variables)).
+
+This library currently uses **setuptools** as its build backend. You do not need to
+convert it to a Poetry-built package to use it *from* a Poetry-managed project.
+
+
 ### Install dependencies manually (legacy)
 
 The following installs dependencies only, not this library:
