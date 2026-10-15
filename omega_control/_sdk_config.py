@@ -19,7 +19,7 @@ def library_subdir() -> str:
         return "lib/release/mac-arm64-clang" if machine in ("arm64", "aarch64") else "lib/release/mac-x86_64-clang"
     if system == "linux":
         arch = {"amd64": "x86_64", "arm64": "aarch64", "armv7l": "armv7"}.get(machine, machine)
-        return "lib/release/linux-" + arch + "-gcc"
+        return "lib/release/lin-" + arch + "-gcc"
     return ""
 
 def config_path() -> Path:

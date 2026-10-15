@@ -69,25 +69,25 @@ convert it to a Poetry-built package to use it *from* a Poetry-managed project.
 ### SDK setup (after installing the Python library)
 
 The Force Dimension SDK is **third-party software**, not included in this
-repository or downloaded during \`pip install\` / \`poetry add\`. The library can
+repository or downloaded during `pip install` / `poetry add`. The library can
 be installed without a connected robot or SDK. When you first request the
 hardware API without an SDK, it explains how to install one.
 
 Run the guided SDK installer:
 
-\`\`\`bash
+```bash
 omega-control setup-sdk          # detects OS and CPU, asks before downloading
 omega-control doctor             # checks SDK discovery; no robot required
-\`\`\`
+```
 
 For a Poetry-managed environment, use:
 
-\`\`\`bash
+```bash
 poetry run omega-control setup-sdk
 poetry run omega-control doctor
-\`\`\`
+```
 
-For noninteractive use, \`omega-control setup-sdk --yes\` approves the vendor
+For noninteractive use, `omega-control setup-sdk --yes` approves the vendor
 download without prompting. **Nothing is downloaded automatically during
 Python package installation or import.** The installer currently targets
 the official Force Dimension SDK **3.17.7** from the
@@ -96,39 +96,39 @@ Review the manufacturer's license terms before proceeding.
 
 Installation behavior depends on the operating system:
 
-- **Linux (x86_64, aarch64, armv7):** Downloads the official \`.tar.gz\` and
-  extracts it into \`~/SDKs/ForceDimension/sdk-3.17.7/\`, then saves the path
+- **Linux (x86_64, aarch64, armv7):** Downloads the official `.tar.gz` and
+  extracts it into `~/SDKs/ForceDimension/sdk-3.17.7/`, then saves the path
   in per-user configuration. No administrator access is required to extract
-  the SDK. USB/udev rules may still require \`sudo\` (see below).
-- **macOS (Intel or Apple Silicon):** Downloads the official \`.dmg\` to
-  \`~/Downloads/\` and opens it. Follow the vendor's installation steps;
+  the SDK. USB/udev rules may still require `sudo` (see below).
+- **macOS (Intel or Apple Silicon):** Downloads the official `.dmg` to
+  `~/Downloads/` and opens it. Follow the vendor's installation steps;
   the CLI does not silently install system software.
-- **Windows (x86/x64):** Downloads the official \`.exe\` to the Downloads
+- **Windows (x86/x64):** Downloads the official `.exe` to the Downloads
   folder and starts the vendor installer. Complete the installer (and
   any required driver/UAC prompts) yourself.
 
 Already have a vendor SDK installed, or did the native installer put it
 somewhere unusual? Register its root directory (the one containing
-\`lib/\` and \`include/\`) without downloading anything:
+`lib/` and `include/`) without downloading anything:
 
-\`\`\`bash
+```bash
 omega-control setup-sdk --sdk-path /path/to/sdk-3.17.7
 omega-control doctor
-\`\`\`
+```
 
 A registered path is remembered in user configuration (Linux:
-\`~/.config/omega-control/sdk.json\`, macOS:
-\`~/Library/Application Support/omega-control/sdk.json\`, Windows:
-\`%APPDATA%\\omega-control\\sdk.json\`). The library sets \`FDSDK\` and
-\`FORCEDIM_SDK\` **within its own Python process** before loading the vendor
+`~/.config/omega-control/sdk.json`, macOS:
+`~/Library/Application Support/omega-control/sdk.json`, Windows:
+`%APPDATA%\\omega-control\\sdk.json`). The library sets `FDSDK` and
+`FORCEDIM_SDK` **within its own Python process** before loading the vendor
 bindings; it does not edit shell startup files or set permanent machine-wide
 environment variables.
 
-\`omega-control-doctor\` is retained as a backward-compatible alias for
-\`omega-control doctor\`. Diagnostics check SDK discovery, **not** physical
-device availability or a full hardware integration test. If you see
-\`Force Dimension SDK not found\`, use \`omega-control setup-sdk\` or
-\`--sdk-path\` as above. On macOS and Windows, rerun diagnostics after
+`omega-control-doctor` is retained as a backward-compatible alias for
+`omega-control doctor`. Diagnostics check SDK discovery and load the native bindings to report the
+SDK version, **without requiring a connected robot**. They do not test robot control. If you see
+`Force Dimension SDK not found`, use `omega-control setup-sdk` or
+`--sdk-path` as above. On macOS and Windows, rerun diagnostics after
 completing the vendor's installer.
 
 ### Install dependencies manually (legacy)
@@ -162,7 +162,7 @@ If you use `virtualenvwrapper`, source the helper after `workon omega` instead o
 variables by hand each time:
 
 ```bash
-source /path/to/forcedimension-omega-control/omega_control/scripts/omega_env.sh "$HOME/SDKs/ForceDimension/sdk-3.17.6"
+source /path/to/forcedimension-omega-control/omega_control/scripts/omega_env.sh "$HOME/SDKs/ForceDimension/sdk-3.17.7"
 ```
 
 You can also add that line to your virtualenv's `postactivate` hook and `omega_env_deactivate`
@@ -174,9 +174,9 @@ For Linux systems, set the SDK root and, if needed, the native library path insi
 shell session for `omega`:
 
 ```bash
-export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.7"
 export FDSDK="$FORCEDIM_SDK"
-export LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/linux-x86_64-gcc"
+export LD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/lin-x86_64-gcc"
 ```
 
 If you use a shell activation script, you can add the same exports there so they load whenever
@@ -231,7 +231,7 @@ that environment's activation script so they are restored automatically.
 Adjust `FORCEDIM_SDK` to the SDK path you have on disk. For example:
 
 ```bash
-export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.7"
 export FDSDK="$FORCEDIM_SDK"
 export DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
 ```
@@ -244,7 +244,7 @@ Notes:
   the shell before running your script:
 
 ```bash
-export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.6"
+export FORCEDIM_SDK="$HOME/SDKs/ForceDimension/sdk-3.17.7"
 export FDSDK="$FORCEDIM_SDK"
 export DYLD_LIBRARY_PATH="$FORCEDIM_SDK/lib/release/mac-arm64-clang"
 python your_script.py
@@ -259,8 +259,8 @@ the Force Dimension SDK. The package will try to resolve the SDK root from that 
 variable, and `omega-control-doctor` can confirm what it sees.
 
 ```powershell
-$env:Path = "C:\SDKs\ForceDimension\sdk-3.17.6\bin;$env:Path"
-$env:FDSDK = "C:\SDKs\ForceDimension\sdk-3.17.6"
+$env:Path = "C:\SDKs\ForceDimension\sdk-3.17.7\bin;$env:Path"
+$env:FDSDK = "C:\SDKs\ForceDimension\sdk-3.17.7"
 python -m pip install git+https://github.com/event-driven-robotics/forcedimension-omega-control.git
 omega-control-doctor
 ```
@@ -270,9 +270,12 @@ shell session before launching Python.
 
 ## Quick Start
 
-After guided setup, run `omega-control doctor` to confirm the SDK path. To check the vendor SDK version and attached hardware, run a small Python snippet:
+After guided setup, run `omega-control doctor` to confirm the SDK path and load
+the native libraries. To check for attached hardware, run a small Python snippet:
 
 ```python
+# Accessing the high-level interface first configures SDK discovery.
+from omega_control import OmegaRobot
 import forcedimension_core.dhd as dhd
 
 try:

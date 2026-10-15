@@ -66,7 +66,7 @@ def test_register_existing_sdk(isolated):
 
 def make_archive(path, bad=None, link=None):
     with tarfile.open(path, "w:gz") as archive:
-        for name in ("sdk-3.17.7/include/dhd.h", "sdk-3.17.7/lib/release/linux-x86_64-gcc/libdhd.so"):
+        for name in ("sdk-3.17.7/include/dhd.h", "sdk-3.17.7/lib/release/lin-x86_64-gcc/libdhd.so"):
             data = b"test"
             member = tarfile.TarInfo(name)
             member.size = len(data)
@@ -76,7 +76,7 @@ def make_archive(path, bad=None, link=None):
             member.size = 3
             archive.addfile(member, io.BytesIO(b"bad"))
         if link:
-            member = tarfile.TarInfo("sdk-3.17.7/lib/release/linux-x86_64-gcc/libdhd.so.1")
+            member = tarfile.TarInfo("sdk-3.17.7/lib/release/lin-x86_64-gcc/libdhd.so.1")
             member.type = tarfile.SYMTYPE
             member.linkname = link
             archive.addfile(member)
@@ -87,7 +87,7 @@ def test_extract_linux_archive(isolated):
     make_archive(archive, link="libdhd.so")
     root = sdk_installer.extract_linux(archive, isolated / "extracted")
     assert sdk.valid_sdk_root(root)
-    assert (root / "lib/release/linux-x86_64-gcc/libdhd.so.1").is_symlink()
+    assert (root / "lib/release/lin-x86_64-gcc/libdhd.so.1").is_symlink()
 
 
 @pytest.mark.parametrize("bad", ["../escape", "/tmp/escape", "sdk-3.17.7/../../escape"])
@@ -118,3 +118,51 @@ def test_linux_setup_offline(isolated, monkeypatch):
 def test_cli_invalid_sdk_path(isolated, capsys):
     assert cli.main(["setup-sdk", "--sdk-path", str(isolated / "missing")]) == 1
     assert "Not a vendor SDK root" in capsys.readouterr().err
+
+
+
+def test_linux_sdk_library_directory(monkeypatch):
+    monkeypatch.setattr(sdk.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sdk.platform, "machine", lambda: "x86_64")
+    assert sdk.library_subdir() == "lib/release/lin-x86_64-gcc"
+
+
+def test_doctor_loads_native_bindings_without_robot(isolated, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(sdk.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sdk.platform, "machine", lambda: "x86_64")
+    root = isolated / "sdk"
+    libdir = root / "lib/release/lin-x86_64-gcc"
+    libdir.mkdir(parents=True)
+    (root / "include").mkdir()
+    (libdir / "libdrd.so.3.17.7").write_bytes(b"test")
+    sdk.save_sdk_root(root)
+
+    def fake_import(name):
+        assert name == "forcedimension_core.dhd"
+        return SimpleNamespace(getSDKVersion=lambda: (3, 17, 7, 0))
+
+    monkeypatch.setattr(doctor, "import_module", fake_import)
+    assert doctor.main() == 0
+    output = capsys.readouterr().out
+    assert "native SDK bindings loaded successfully" in output
+    assert "SDK version: (3, 17, 7, 0)" in output
+
+
+def test_doctor_reports_native_load_failure(isolated, monkeypatch, capsys):
+    monkeypatch.setattr(sdk.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sdk.platform, "machine", lambda: "x86_64")
+    root = isolated / "sdk"
+    libdir = root / "lib/release/lin-x86_64-gcc"
+    libdir.mkdir(parents=True)
+    (root / "include").mkdir()
+    (libdir / "libdrd.so.3.17.7").write_bytes(b"test")
+    sdk.save_sdk_root(root)
+
+    def failing_import(_):
+        raise ImportError("simulated missing dependency")
+
+    monkeypatch.setattr(doctor, "import_module", failing_import)
+    assert doctor.main() == 1
+    assert "native SDK library loading failed" in capsys.readouterr().out
