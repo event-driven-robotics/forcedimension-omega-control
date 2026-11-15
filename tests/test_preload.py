@@ -38,6 +38,9 @@ def simulated_robot(monkeypatch):
     monkeypatch.setitem(sys.modules, "matplotlib", matplotlib)
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", pyplot)
 
+    # Each test needs the module bound to this fixture's isolated fake SDK.
+    # Otherwise importlib can reuse the previous test's cached DHD/DRD modules.
+    monkeypatch.delitem(sys.modules, "omega_control.omega_control", raising=False)
     module = importlib.import_module("omega_control.omega_control")
     state = {
         "time": 0.0,
