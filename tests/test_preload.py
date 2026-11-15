@@ -111,3 +111,68 @@ def test_preload_stops_at_displacement_limit(simulated_robot):
     assert result.status is module.PreloadStatus.MAX_DISPLACEMENT
     assert not result.reached
     assert state["held"]
+
+
+def test_checked_state_reads_three_vectors_and_rejects_sdk_errors(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot.pos = robot.vel = robot.force = [0.0, 0.0, 0.0]
+
+    def fill(values, content, status=0):
+        values[:] = content
+        return status
+
+    module.dhd.getPosition = lambda buf: fill(buf, [0.01, 0.02, 0.03])
+    module.dhd.getLinearVelocity = lambda buf: fill(buf, [0.0, 0.0, 0.0])
+    module.dhd.getForce = lambda buf: fill(buf, [0.1, 0.2, 0.3])
+    position, velocity, force = robot.read_checked_state()
+    assert position == (0.01, 0.02, 0.03)
+    assert velocity == (0.0, 0.0, 0.0)
+    assert force == (0.1, 0.2, 0.3)
+    assert robot.force == [0.1, 0.2, 0.3]
+
+    module.dhd.getForce = lambda buf: fill(buf, [0.0, 0.0, 0.0], -1)
+    with pytest.raises(RuntimeError, match="DHD force read failed"):
+        robot.read_checked_state()
+    module.dhd.getForce = lambda buf: fill(buf, [float("nan"), 0, 0])
+    with pytest.raises(RuntimeError, match="non-finite"):
+        robot.read_checked_state()
+    module.dhd.getForce = lambda buf: fill(buf, [0, 0, 0], None)
+    with pytest.raises(RuntimeError, match="DHD force read failed"):
+        robot.read_checked_state()
+
+
+def test_checked_tracking_rejects_negative_status_and_invalid_targets(simulated_robot):
+    robot, module, state = simulated_robot
+    assert robot.track_pos_checked([0.01, 0, 0]) is True
+    assert state["position"] == [0.01, 0, 0]
+    module.drd.trackPos = lambda _: -1
+    with pytest.raises(RuntimeError, match="trackPos failed"):
+        robot.track_pos_checked([0.01, 0, 0])
+    with pytest.raises(ValueError, match="three finite"):
+        robot.track_pos_checked([float("inf"), 0, 0])
+
+
+def test_checked_tracking_limits_verify_sdk_status_and_readback(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot.device_id = 7
+    state = {"status": 0, "params": (0.01, 0.1, 1.0, 0)}
+
+    def set_params(v, a, j, device):
+        assert device == 7
+        return state["status"]
+
+    module.drd.setPosTrackParam = set_params
+    module.drd.getPosTrackParam = lambda device: state["params"]
+    assert robot.set_tracking_params_checked(.01, .1, 1.0) == (.01, .1, 1.0)
+    state["status"] = -1
+    with pytest.raises(RuntimeError, match="setPosTrackParam failed"):
+        robot.set_tracking_params_checked(.01, .1, 1.0)
+    state["status"] = 0
+    state["params"] = (.02, .1, 1.0, 0)
+    with pytest.raises(RuntimeError, match="exceeds approved"):
+        robot.set_tracking_params_checked(.01, .1, 1.0)
+    state["params"] = (.01, .1, 1.0, -1)
+    with pytest.raises(RuntimeError, match="readback failed"):
+        robot.set_tracking_params_checked(.01, .1, 1.0)
+    with pytest.raises(ValueError, match="finite positive"):
+        robot.set_tracking_params_checked(0, .1, 1.0)
