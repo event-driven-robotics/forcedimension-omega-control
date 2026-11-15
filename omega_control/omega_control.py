@@ -519,6 +519,63 @@ class OmegaRobot:
         dhd.getForce(self.force)
         return self.force
 
+    def read_checked_state(self):
+        """Read position, velocity and force, rejecting failed DHD calls.
+
+        This additive API is intended for safety-supervised applications.
+        Unlike the historical get_pos/get_vel/get_force convenience methods,
+        it verifies each DHD return code and the finiteness of all values.
+        It does NOT prove an independently calibrated sensor clock or a
+        safety-rated device watchdog.
+        """
+        result = []
+        for name, reader in (
+            ("position", dhd.getPosition),
+            ("velocity", dhd.getLinearVelocity),
+            ("force", dhd.getForce),
+        ):
+            values = [math.nan, math.nan, math.nan]
+            status = reader(values)
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DHD {name} read failed with status {status!r}")
+            if not all(math.isfinite(value) for value in values):
+                raise RuntimeError(f"DHD {name} read returned non-finite values")
+            result.append(tuple(float(value) for value in values))
+        self.pos, self.vel, self.force = (list(item) for item in result)
+        return tuple(result)
+
+    def track_pos_checked(self, target):
+        """Issue a DRD tracking target and require an explicit success code."""
+        values = tuple(float(value) for value in target)
+        if len(values) != 3 or not all(math.isfinite(value) for value in values):
+            raise ValueError("Tracking target must contain three finite XYZ values")
+        status = drd.trackPos(list(values))
+        if type(status) is not int or status != 0:
+            raise RuntimeError(f"DRD trackPos failed with status {status!r}")
+        return True
+
+    def set_tracking_params_checked(self, vmax, amax, jerk):
+        """Set DRD tracking bounds with checked status and measured readback."""
+        requested = (vmax, amax, jerk)
+        if not all(
+            isinstance(value, (int, float))
+            and math.isfinite(value) and value > 0
+            for value in requested
+        ):
+            raise ValueError("Tracking limits must be finite positive numbers")
+        status = drd.setPosTrackParam(*requested, self.device_id)
+        if type(status) is not int or status != 0:
+            raise RuntimeError(f"DRD setPosTrackParam failed with status {status!r}")
+        actual = drd.getPosTrackParam(self.device_id)
+        if len(actual) != 4 or type(actual[3]) is not int or actual[3] != 0:
+            raise RuntimeError("DRD tracking readback failed")
+        if any(
+            not math.isfinite(value) or value <= 0 or value > limit * (1 + 1e-4)
+            for value, limit in zip(actual[:3], requested)
+        ):
+            raise RuntimeError("DRD tracking readback exceeds approved limits")
+        return tuple(float(value) for value in actual[:3])
+
     def set_pos(self, target: list[float], block: bool = True, tracking: bool = False):
         """
         Moves the robot end-effector to a desired Cartesian position.
