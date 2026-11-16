@@ -136,74 +136,101 @@ class OmegaRobot:
         Default tracking trajectory parameters (vmax, amax, jerk).
     """
 
-    def __init__(self, verbose=False, outpath="./"):
-        """
-        Initialize the OmegaRobot object.
+    def __init__(self, verbose=False, outpath="./", *, auto_open=True,
+                 auto_initialize=True, device_index=None, expected_serial=None):
+        """Set up the object; retain the historical auto-open/auto-init defaults.
 
-        Opens a connection to the device, initializes it, and
-        prepares state-tracking vectors for position, velocity, and force.
-
-        Parameters
-        ----------
-        verbose : bool, optional
-            If True, prints information about device operations.
-        outpath : str, optional
-            Default file path to save recorded data in HDF5 format.
+        For supervised use, pass auto_open=False, auto_initialize=False,
+        then call open(expected_serial=...) and only subsequently authorize
+        initialize(). Opening and serial verification do not request motion.
+        Initialization may move the device.
         """
+        if not auto_open and auto_initialize:
+            raise ValueError("auto_initialize=True requires auto_open=True")
         self.verbose = verbose
         self.outpath = outpath
         self.device_id = None
         self._is_open = False
-        self.open()
-        self.initialize()
-
-        self.default_move_param = self.get_pos_param()
-        self.default_track_param = self.get_pos_param(tracking=True)
-
-        # Initialize state variables
+        self.default_move_param = None
+        self.default_track_param = None
         self.pos = [0.0, 0.0, 0.0]
         self.vel = [0.0, 0.0, 0.0]
         self.force = [0.0, 0.0, 0.0]
-
-        # Data logging attributes
         self.logging_thread = None
         self.logging_active = False
         self.log_data = []
-        self.log_freq = None  # Hz (None = as fast as possible)
+        self.log_freq = None
         self._sdk_lock = threading.RLock()
         self.recording_error = None
+
+        if auto_open:
+            self.open(device_index=device_index, expected_serial=expected_serial)
+            if auto_initialize:
+                self.initialize()
 
     # -------------------------------------------------------------------------
     # DEVICE CONTROL METHODS
     # -------------------------------------------------------------------------
 
-    def open(self):
+    def open(self, *, device_index=None, expected_serial=None):
+        """Open without initializing, optionally selecting and verifying identity.
+
+        device_index uses DRD enumeration; expected_serial alone uses the
+        supported DHD serial-opening API. The serial is always read back and
+        checked before any subsequent initialization. Never fall back to a
+        different device if a requested identity cannot be opened or verified.
         """
-        Open a connection to the first available device connected to
-        the system. The order in which devices are opened persists
-        until devices are added or removed.
-
-        If this call is successful, the default device ID is set to
-        the newly opened device. See the :ref:`multiple_devices`
-        section for more information on using multiple devices on
-        the same computer.
-
-        :returns: The device ID on success, -1 otherwise.
-        """
-
+        if device_index is not None and (
+            type(device_index) is not int or device_index < 0
+        ):
+            raise ValueError("device_index must be a non-negative integer")
+        if expected_serial is not None and (
+            type(expected_serial) is not int or expected_serial < 0
+        ):
+            raise ValueError("expected_serial must be a non-negative integer")
         if self._is_open:
-            if self.verbose:
-                print("Device already open.")
-            return
+            if device_index is not None:
+                raise RuntimeError("Cannot select a device while already open")
+            if (expected_serial is not None
+                    and self.get_serial_number_checked() != expected_serial):
+                raise RuntimeError("Opened device serial number does not match")
+            return self.device_id
 
-        device_id = drd.open()
-        if device_id < 0:
-            raise RuntimeError("Failed to open device.")
+        if device_index is not None:
+            device_id = drd.openID(device_index)
+        elif expected_serial is not None:
+            device_id = dhd.openSerial(expected_serial)
+        else:
+            device_id = drd.open()
+        if type(device_id) is not int or device_id < 0:
+            raise RuntimeError(f"Failed to open requested device: {device_id!r}")
 
         self.device_id = device_id
         self._is_open = True
+        try:
+            if expected_serial is not None:
+                actual = self.get_serial_number_checked()
+                if actual != expected_serial:
+                    raise RuntimeError(
+                        f"Device serial mismatch: expected {expected_serial}, got {actual}"
+                    )
+        except Exception as exc:
+            try:
+                status = drd.close(device_id)
+                if type(status) is not int or status != 0:
+                    raise RuntimeError(f"DRD close returned {status!r}")
+                self._is_open = False
+                self.device_id = None
+            except Exception as cleanup_exc:
+                raise RuntimeError(
+                    f"Device identity check failed: {exc}; "
+                    f"cleanup failed: {cleanup_exc}; device state uncertain"
+                ) from exc
+            raise
+
         if self.verbose:
             print("Device opened successfully.")
+        return device_id
 
     def is_open(self):
         """
@@ -240,20 +267,19 @@ class OmegaRobot:
             True on success.
         """
 
+        if not self._is_open:
+            raise RuntimeError("Cannot initialize a closed device")
         try:
-            if precision:
-                drd.precisionInit(self.device_id)
-            else:
-                drd.autoInit(self.device_id)
-
+            operation = "precisionInit" if precision else "autoInit"
+            status = (drd.precisionInit(self.device_id) if precision
+                      else drd.autoInit(self.device_id))
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DRD {operation} returned {status!r}")
             if self.verbose:
                 print("Force Dimension device re-initialized successfully.")
             return True
-
-        except Exception as e:
-            drd.close(self.device_id)
-            raise RuntimeError(
-                f"Failed to force re-initialize the device: {e}") from e
+        except Exception as exc:
+            self._fail_initialization(exc, "Force re-initialization")
 
     def initialize(self, precision: bool = False):
         """
@@ -276,21 +302,62 @@ class OmegaRobot:
             True on success.
         """
 
+        if not self._is_open:
+            raise RuntimeError("Cannot initialize a closed device")
         try:
-            if not drd.isInitialized() and not precision:
-                drd.autoInit(self.device_id)
-            elif precision:
-                drd.precisionInit(self.device_id)
+            if precision:
+                operation = "precisionInit"
+                status = drd.precisionInit(self.device_id)
+            elif not drd.isInitialized(self.device_id):
+                operation = "autoInit"
+                status = drd.autoInit(self.device_id)
             else:
-                drd.start()
+                operation = "start"
+                status = drd.start(self.device_id)
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DRD {operation} returned {status!r}")
+
+            if self.default_move_param is None:
+                move = self.get_pos_param()
+                track = self.get_pos_param(tracking=True)
+                for name, params in (("move", move), ("track", track)):
+                    if (len(params) != 4 or type(params[3]) is not int
+                            or params[3] != 0
+                            or not all(math.isfinite(v) for v in params[:3])):
+                        raise RuntimeError(f"DRD {name} parameters readback failed")
+                self.default_move_param = move
+                self.default_track_param = track
 
             if self.verbose:
                 print("Robot successfully initialized.")
             return True
+        except Exception as exc:
+            self._fail_initialization(exc, "Initialization")
 
-        except Exception as e:
-            drd.close(self.device_id)
-            raise RuntimeError(f"Failed to initialize the robot: {e}") from e
+    def _fail_initialization(self, cause, operation):
+        """Best-effort BRAKE and close on failed, potentially moving init.
+
+        Return codes are checked; neither the BRAKE request nor a successful
+        close proves a physical stop. Never hide a cleanup failure.
+        """
+        failures = []
+        try:
+            status = dhd.stop(self.device_id)
+            if type(status) is not int or status != 0:
+                failures.append(f"DHD BRAKE request returned {status!r}")
+        except Exception as exc:
+            failures.append(f"DHD BRAKE request raised {exc!r}")
+        try:
+            status = drd.close(self.device_id)
+            if type(status) is int and status == 0:
+                self._is_open = False
+                self.device_id = None
+            else:
+                failures.append(f"DRD close returned {status!r}")
+        except Exception as exc:
+            failures.append(f"DRD close raised {exc!r}")
+        detail = "; ".join(failures) if failures else "BRAKE requested; close acknowledged"
+        raise RuntimeError(f"{operation} failed: {cause}; cleanup: {detail}") from cause
 
     def check_init(self):
         """
@@ -363,6 +430,15 @@ class OmegaRobot:
         serial_number = dhd.getSerialNumber(self.device_id)
         return serial_number
 
+    def get_serial_number_checked(self):
+        """Return the opened device serial number or raise on SDK failure."""
+        if not self._is_open:
+            raise RuntimeError("Device is not open")
+        serial = dhd.getSerialNumber(self.device_id)
+        if type(serial) is not int or serial < 0:
+            raise RuntimeError(f"DHD getSerialNumber failed: {serial!r}")
+        return serial
+
     def get_control_freq(self):
         """
         This function returns the average refresh rate of the control loop
@@ -376,12 +452,25 @@ class OmegaRobot:
         return ctrl_frequ
 
     def stop(self):
-        """
-        Stop the device. This routine disables the force on the
-        haptic device and puts it into BRAKE mode.
-        """
+        """Request BRAKE and require SDK acknowledgment.
 
-        dhd.stop(self.device_id)
+        Returns True only when DHD reports success (status 0). A returned
+        True is NOT independent verification of physical braking or a
+        safety-rated stop. Failure or missing acknowledgment raises.
+        """
+        if not self._is_open:
+            raise RuntimeError("Cannot request BRAKE: device is not open")
+        try:
+            status = dhd.stop(self.device_id)
+        except Exception as exc:
+            raise RuntimeError("DHD BRAKE request raised an exception; "
+                               "physical stop unverified") from exc
+        if type(status) is not int or status != 0:
+            raise RuntimeError(
+                f"DHD BRAKE request failed with status {status!r}; "
+                "physical stop unverified"
+            )
+        return True
 
     def is_moving(self):
         """
