@@ -179,3 +179,39 @@ def test_checked_tracking_limits_verify_sdk_status_and_readback(simulated_robot)
         robot.set_tracking_params_checked(.01, .1, 1.0)
     with pytest.raises(ValueError, match="finite positive"):
         robot.set_tracking_params_checked(0, .1, 1.0)
+
+
+@pytest.mark.parametrize("status", [0, -1, None, 1])
+def test_stop_requires_explicit_sdk_success(simulated_robot, status):
+    robot, module, _state = simulated_robot
+    robot._is_open = True
+    robot.device_id = 7
+    called = []
+    module.dhd.stop = lambda device_id: called.append(device_id) or status
+    if status == 0:
+        assert robot.stop() is True
+    else:
+        with pytest.raises(RuntimeError, match="BRAKE request failed"):
+            robot.stop()
+    assert called == [7]
+
+
+def test_stop_sdk_exception_propagates(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot._is_open = True
+    robot.device_id = 7
+
+    def fail(_):
+        raise OSError("simulated DHD failure")
+
+    module.dhd.stop = fail
+    with pytest.raises(RuntimeError, match="physical stop unverified"):
+        robot.stop()
+
+
+def test_stop_closed_device_never_calls_sdk(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot._is_open = False
+    module.dhd.stop = lambda _: pytest.fail("stop called for closed device")
+    with pytest.raises(RuntimeError, match="not open"):
+        robot.stop()

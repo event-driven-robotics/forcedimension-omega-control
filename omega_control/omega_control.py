@@ -450,12 +450,25 @@ class OmegaRobot:
         return ctrl_frequ
 
     def stop(self):
-        """
-        Stop the device. This routine disables the force on the
-        haptic device and puts it into BRAKE mode.
-        """
+        """Request BRAKE and require SDK acknowledgment.
 
-        dhd.stop(self.device_id)
+        Returns True only when DHD reports success (status 0). A returned
+        True is NOT independent verification of physical braking or a
+        safety-rated stop. Failure or missing acknowledgment raises.
+        """
+        if not self._is_open:
+            raise RuntimeError("Cannot request BRAKE: device is not open")
+        try:
+            status = dhd.stop(self.device_id)
+        except Exception as exc:
+            raise RuntimeError("DHD BRAKE request raised an exception; "
+                               "physical stop unverified") from exc
+        if type(status) is not int or status != 0:
+            raise RuntimeError(
+                f"DHD BRAKE request failed with status {status!r}; "
+                "physical stop unverified"
+            )
+        return True
 
     def is_moving(self):
         """
