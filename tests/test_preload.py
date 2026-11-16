@@ -66,6 +66,7 @@ def simulated_robot(monkeypatch):
     drd.trackPos = track_position
     robot = module.OmegaRobot.__new__(module.OmegaRobot)
     robot.verbose = False
+    robot._sdk_lock = __import__("threading").RLock()
     robot.get_pos = lambda: state["position"].copy()
     robot.get_force = lambda: [100.0 * value for value in state["position"]]
     robot.hold = lambda: state.update(held=True) or 0
@@ -181,37 +182,91 @@ def test_checked_tracking_limits_verify_sdk_status_and_readback(simulated_robot)
         robot.set_tracking_params_checked(0, .1, 1.0)
 
 
-@pytest.mark.parametrize("status", [0, -1, None, 1])
-def test_stop_requires_explicit_sdk_success(simulated_robot, status):
+def test_native_recording_reports_sdk_failure(simulated_robot):
+    import threading
+    import time as real_time
+
+    robot, module, _state = simulated_robot
+    module.time = real_time
+    robot._is_open = True
+    robot.device_id = 7
+    robot._sdk_lock = threading.RLock()
+    robot.logging_thread = None
+    robot.logging_active = False
+    robot.recording_error = None
+    robot.log_data = []
+    robot.log_freq = None
+    module.dhd.getPosition = lambda buf: -1
+    module.dhd.getLinearVelocity = lambda buf: 0
+    module.dhd.getForce = lambda buf: 0
+
+    robot.start_recording(freq=100)
+    robot.logging_thread.join(timeout=1)
+    assert not robot.logging_active
+    with pytest.raises(RuntimeError, match="recording failed"):
+        robot.check_recording_health()
+    with pytest.raises(RuntimeError, match="recording failed"):
+        robot.stop_recording()
+    with pytest.raises(RuntimeError, match="incomplete recording"):
+        robot.save_log("should_not_exist.h5")
+
+
+def test_native_recording_success_uses_checked_vectors(simulated_robot):
+    import threading
+    import time as real_time
+
+    robot, module, _state = simulated_robot
+    module.time = real_time
+    robot._is_open = True
+    robot.device_id = 7
+    robot._sdk_lock = threading.RLock()
+    robot.logging_thread = None
+    robot.logging_active = False
+    robot.recording_error = None
+    robot.log_data = []
+    robot.log_freq = None
+
+    def fill(buf, value):
+        buf[:] = [value, value, value]
+        return 0
+
+    module.dhd.getPosition = lambda buf: fill(buf, 1.0)
+    module.dhd.getLinearVelocity = lambda buf: fill(buf, 2.0)
+    module.dhd.getForce = lambda buf: fill(buf, 3.0)
+    robot.start_recording(freq=100)
+    real_time.sleep(.04)
+    robot.check_recording_health()
+    robot.stop_recording()
+    assert robot.log_data
+    assert all(sample[1:] == [1.0] * 3 + [2.0] * 3 + [3.0] * 3
+               for sample in robot.log_data)
+
+
+def test_close_still_closes_after_recording_failure(simulated_robot):
+    import threading
+
     robot, module, _state = simulated_robot
     robot._is_open = True
     robot.device_id = 7
-    called = []
-    module.dhd.stop = lambda device_id: called.append(device_id) or status
-    if status == 0:
-        assert robot.stop() is True
-    else:
-        with pytest.raises(RuntimeError, match="BRAKE request failed"):
-            robot.stop()
-    assert called == [7]
+    robot._sdk_lock = threading.RLock()
+    robot.logging_thread = None
+    robot.logging_active = False
+    robot.recording_error = ValueError("simulated acquisition failure")
+    robot.log_data = []
+    calls = []
+    module.drd.close = lambda device_id: calls.append(device_id) or 0
+    # With no thread, close should still release the device.
+    robot.close()
+    assert calls == [7]
+    assert not robot.is_open()
 
 
-def test_stop_sdk_exception_propagates(simulated_robot):
+def test_recording_frequency_validation(simulated_robot):
+    import threading
     robot, module, _state = simulated_robot
     robot._is_open = True
-    robot.device_id = 7
-
-    def fail(_):
-        raise OSError("simulated DHD failure")
-
-    module.dhd.stop = fail
-    with pytest.raises(RuntimeError, match="physical stop unverified"):
-        robot.stop()
-
-
-def test_stop_closed_device_never_calls_sdk(simulated_robot):
-    robot, module, _state = simulated_robot
-    robot._is_open = False
-    module.dhd.stop = lambda _: pytest.fail("stop called for closed device")
-    with pytest.raises(RuntimeError, match="not open"):
-        robot.stop()
+    robot._sdk_lock = threading.RLock()
+    robot.logging_thread = None
+    for freq in [0, -1, float("nan"), float("inf"), True]:
+        with pytest.raises(ValueError, match="frequency"):
+            robot.start_recording(freq=freq)

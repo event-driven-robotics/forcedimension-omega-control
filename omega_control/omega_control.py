@@ -160,6 +160,8 @@ class OmegaRobot:
         self.logging_active = False
         self.log_data = []
         self.log_freq = None
+        self._sdk_lock = threading.RLock()
+        self.recording_error = None
 
         if auto_open:
             self.open(device_index=device_index, expected_serial=expected_serial)
@@ -459,7 +461,9 @@ class OmegaRobot:
         if not self._is_open:
             raise RuntimeError("Cannot request BRAKE: device is not open")
         try:
-            status = dhd.stop(self.device_id)
+            # Coordinate BRAKE with native recording reads and checked control.
+            with self._sdk_lock:
+                status = dhd.stop(self.device_id)
         except Exception as exc:
             raise RuntimeError("DHD BRAKE request raised an exception; "
                                "physical stop unverified") from exc
@@ -617,31 +621,35 @@ class OmegaRobot:
         It does NOT prove an independently calibrated sensor clock or a
         safety-rated device watchdog.
         """
-        result = []
-        for name, reader in (
-            ("position", dhd.getPosition),
-            ("velocity", dhd.getLinearVelocity),
-            ("force", dhd.getForce),
-        ):
-            values = [math.nan, math.nan, math.nan]
-            status = reader(values)
-            if type(status) is not int or status != 0:
-                raise RuntimeError(f"DHD {name} read failed with status {status!r}")
-            if not all(math.isfinite(value) for value in values):
-                raise RuntimeError(f"DHD {name} read returned non-finite values")
-            result.append(tuple(float(value) for value in values))
-        self.pos, self.vel, self.force = (list(item) for item in result)
-        return tuple(result)
+        # A single lock coordinates checked supervision and the recorder.
+        # The SDK's general thread-safety is not assumed.
+        with self._sdk_lock:
+            result = []
+            for name, reader in (
+                ("position", dhd.getPosition),
+                ("velocity", dhd.getLinearVelocity),
+                ("force", dhd.getForce),
+            ):
+                values = [math.nan, math.nan, math.nan]
+                status = reader(values)
+                if type(status) is not int or status != 0:
+                    raise RuntimeError(f"DHD {name} read failed with status {status!r}")
+                if not all(math.isfinite(value) for value in values):
+                    raise RuntimeError(f"DHD {name} read returned non-finite values")
+                result.append(tuple(float(value) for value in values))
+            self.pos, self.vel, self.force = (list(item) for item in result)
+            return tuple(result)
 
     def track_pos_checked(self, target):
         """Issue a DRD tracking target and require an explicit success code."""
         values = tuple(float(value) for value in target)
         if len(values) != 3 or not all(math.isfinite(value) for value in values):
             raise ValueError("Tracking target must contain three finite XYZ values")
-        status = drd.trackPos(list(values))
-        if type(status) is not int or status != 0:
-            raise RuntimeError(f"DRD trackPos failed with status {status!r}")
-        return True
+        with self._sdk_lock:
+            status = drd.trackPos(list(values))
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DRD trackPos failed with status {status!r}")
+            return True
 
     def set_tracking_params_checked(self, vmax, amax, jerk):
         """Set DRD tracking bounds with checked status and measured readback."""
@@ -652,18 +660,19 @@ class OmegaRobot:
             for value in requested
         ):
             raise ValueError("Tracking limits must be finite positive numbers")
-        status = drd.setPosTrackParam(*requested, self.device_id)
-        if type(status) is not int or status != 0:
-            raise RuntimeError(f"DRD setPosTrackParam failed with status {status!r}")
-        actual = drd.getPosTrackParam(self.device_id)
-        if len(actual) != 4 or type(actual[3]) is not int or actual[3] != 0:
-            raise RuntimeError("DRD tracking readback failed")
-        if any(
-            not math.isfinite(value) or value <= 0 or value > limit * (1 + 1e-4)
-            for value, limit in zip(actual[:3], requested)
-        ):
-            raise RuntimeError("DRD tracking readback exceeds approved limits")
-        return tuple(float(value) for value in actual[:3])
+        with self._sdk_lock:
+            status = drd.setPosTrackParam(*requested, self.device_id)
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DRD setPosTrackParam failed with status {status!r}")
+            actual = drd.getPosTrackParam(self.device_id)
+            if len(actual) != 4 or type(actual[3]) is not int or actual[3] != 0:
+                raise RuntimeError("DRD tracking readback failed")
+            if any(
+                not math.isfinite(value) or value <= 0 or value > limit * (1 + 1e-4)
+                for value, limit in zip(actual[:3], requested)
+            ):
+                raise RuntimeError("DRD tracking readback exceeds approved limits")
+            return tuple(float(value) for value in actual[:3])
 
     def set_pos(self, target: list[float], block: bool = True, tracking: bool = False):
         """
@@ -1276,113 +1285,81 @@ class OmegaRobot:
     # -------------------------------------------------------------------------
 
     def _record_loop(self):
+        """Record checked samples; persist failures for supervisor inspection.
+
+        The existing time column is wall-clock-derived elapsed seconds, NOT
+        MCU time, hardware sampling time or host-monotonic sample time.
         """
-        Private thread function to record robot data continuously.
-
-        Continuously logs timestamped position, velocity, and force data
-        while `self.logging_active` is True. The logging frequency is 
-        controlled by `self.log_freq`. If `log_freq` is None or 0, data 
-        is recorded as fast as possible.
-
-        Logged data format:
-            [elapsed_time, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, force_x, force_y, force_z]
-        """
-
         t0 = time.time()
-        last_time = t0
+        last_time = time.monotonic()
         interval = 1.0 / self.log_freq if self.log_freq else 0.0
+        try:
+            while self.logging_active:
+                now = time.monotonic()
+                if self.log_freq is None or (now - last_time) >= interval:
+                    position, velocity, force = self.read_checked_state()
+                    wall_elapsed = time.time() - t0
+                    self.log_data.append(
+                        [wall_elapsed] + list(position) + list(velocity) + list(force)
+                    )
+                    last_time = now
+                if self.log_freq:
+                    remaining = interval - (time.monotonic() - last_time)
+                    if remaining > 0:
+                        time.sleep(remaining)
+        except Exception as exc:
+            self.recording_error = exc
+        finally:
+            self.logging_active = False
 
-        if self.verbose:
-            print(f"Recording started (freq={self.log_freq or 'max'} Hz)")
-
-        while self.logging_active:
-            now = time.time()
-            if self.log_freq is None or (now - last_time) >= interval:
-                self.get_pos()
-                self.get_vel()
-                self.get_force()
-                self.log_data.append(
-                    [now - t0] + self.pos + self.vel + self.force)
-                last_time = now
-
-            if self.log_freq:
-                # Sleep a small amount to maintain the desired frequency
-                elapsed = time.time() - last_time
-                sleep_time = max(0.0, interval - elapsed)
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-
-        if self.verbose:
-            print(
-                f"Recording stopped. Collected {len(self.log_data)} samples.")
+    def check_recording_health(self):
+        """Raise if the recording thread failed or terminated unexpectedly."""
+        if self.recording_error is not None:
+            raise RuntimeError("Omega recording failed") from self.recording_error
+        if (self.logging_thread is not None and not self.logging_active
+                and not self.logging_thread.is_alive()):
+            raise RuntimeError("Omega recording terminated unexpectedly")
+        return True
 
     def start_recording(self, freq: float = None):
-        """
-        Start recording position, velocity, and force data in a background thread.
-
-        Parameters
-        ----------
-        freq : float, optional
-            Sampling frequency in Hz. If None, records data as fast as possible.
-
-        Notes
-        -----
-        - Recorded data is stored in `self.log_data` as lists:
-        [elapsed_time, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, force_x, force_y, force_z].
-        - The recording runs in a daemon thread and stops when `self.logging_active` is set to False.
-        - Higher frequencies (>1000 Hz) may impact system performance
-        - Use moderate frequencies (100-1000 Hz) for most applications
-        
-        Examples
-        --------
-        >>> # Record at 1000 Hz for precise motion tracking
-        >>> robot.start_recording(freq=1000)
-        >>> 
-        >>> # Record as fast as possible (typically >10 kHz)
-        >>> robot.start_recording()
-        >>> 
-        >>> # Low frequency for long-duration experiments
-        >>> robot.start_recording(freq=100)
-        """
-
-        if self.logging_active:
-            if self.verbose:
-                print("Recording already active.")
-            return
-
+        """Start checked native acquisition, rejecting invalid sampling rates."""
+        if not self._is_open:
+            raise RuntimeError("Cannot record: device is not open")
+        if freq is not None and (
+            not isinstance(freq, (int, float)) or isinstance(freq, bool)
+            or not math.isfinite(freq) or freq <= 0
+        ):
+            raise ValueError("Recording frequency must be finite and positive")
+        if self.logging_thread is not None:
+            if self.logging_thread.is_alive():
+                raise RuntimeError("Recording thread already exists")
+            self.check_recording_health()
+            raise RuntimeError("Stop previous recording before starting another")
         self.log_freq = freq
         self.log_data = []
+        self.recording_error = None
         self.logging_active = True
         self.logging_thread = threading.Thread(
-            target=self._record_loop, daemon=True)
-        self.logging_thread.start()
-
-        if self.verbose:
-            print(f"Recording started (freq={freq or 'max'} Hz)")
+            target=self._record_loop, daemon=True
+        )
+        try:
+            self.logging_thread.start()
+        except Exception:
+            self.logging_active = False
+            self.logging_thread = None
+            raise
 
     def stop_recording(self):
-        """
-        Stop the background data recording thread safely.
-
-        Notes
-        -----
-        - Sets `self.logging_active` to False to terminate the recording loop.
-        - Joins the background thread to ensure it finishes cleanly.
-        - Resets `self.logging_thread` to None after stopping.
-        """
-
-        if not self.logging_active:
-            if self.verbose:
-                print("No active recording to stop.")
-            return
-
+        """Join recorder and propagate any acquisition failure."""
+        thread = self.logging_thread
         self.logging_active = False
-        self.logging_thread.join()
-        self.logging_thread = None
-
-        if self.verbose:
-            print(
-                f"Recording stopped. Collected {len(self.log_data)} samples.")
+        if thread is not None:
+            if thread is threading.current_thread():
+                raise RuntimeError("Recording thread cannot join itself")
+            thread.join()
+            self.logging_thread = None
+        if self.recording_error is not None:
+            raise RuntimeError("Omega recording failed") from self.recording_error
 
     def save_log(self, filename: str = None) -> str:
         """
@@ -1424,6 +1401,10 @@ class OmegaRobot:
         >>> filepath = robot.save_log("/data/experiments/trial_05.h5")
         """
 
+        if self.logging_thread is not None:
+            raise RuntimeError("Stop recording before saving")
+        if self.recording_error is not None:
+            raise RuntimeError("Cannot save incomplete recording") from self.recording_error
         if not self.log_data:
             raise RuntimeError("No data to save — start recording first.")
 
@@ -1448,6 +1429,10 @@ class OmegaRobot:
                     "vel_x", "vel_y", "vel_z",
                     "force_x", "force_y", "force_z",
                 ]
+                f["data"].attrs["time_provenance"] = (
+                    "elapsed_wall_clock_time_time.time_seconds; "
+                    "not MCU, calibrated or host_monotonic_sample_time"
+                )
                 # Ensure data is flushed to disk
                 f.flush()
 
@@ -1494,6 +1479,10 @@ class OmegaRobot:
         >>> data, columns = robot.return_log()
         >>> print(f"Recorded {data.shape[0]} samples")
         """
+        if self.logging_thread is not None:
+            raise RuntimeError("Stop recording before returning log")
+        if self.recording_error is not None:
+            raise RuntimeError("Cannot return incomplete recording") from self.recording_error
         if not self.log_data:
             raise RuntimeError("No data to return — start recording first.")
 
@@ -1694,21 +1683,25 @@ class OmegaRobot:
         >>> finally:
         >>>     robot.close()
         """
-        # Stop recording if active
-        if self.logging_active:
-            if self.verbose:
-                print("Stopping active recording before closing device...")
-            self.stop_recording()
-
-        # Check if device is already closed
-        if not self._is_open:
-            if self.verbose:
-                print("Device is already closed.")
-            return
-
-        # Close the device connection
-        drd.close(self.device_id)
-        self._is_open = False
-
+        # Recording failures must not prevent a best-effort device close.
+        errors = []
+        if self.logging_thread is not None:
+            try:
+                self.stop_recording()
+            except Exception as exc:
+                errors.append(exc)
+        if self._is_open:
+            try:
+                with self._sdk_lock:
+                    status = drd.close(self.device_id)
+                if type(status) is not int or status != 0:
+                    raise RuntimeError(f"DRD close returned {status!r}")
+                self._is_open = False
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise RuntimeError(
+                "Omega close incomplete: " + "; ".join(str(err) for err in errors)
+            ) from errors[0]
         if self.verbose:
             print("Robot connection successfully closed.")
