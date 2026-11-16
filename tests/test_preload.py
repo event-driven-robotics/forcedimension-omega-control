@@ -66,6 +66,7 @@ def simulated_robot(monkeypatch):
     drd.trackPos = track_position
     robot = module.OmegaRobot.__new__(module.OmegaRobot)
     robot.verbose = False
+    robot._sdk_lock = __import__("threading").RLock()
     robot.get_pos = lambda: state["position"].copy()
     robot.get_force = lambda: [100.0 * value for value in state["position"]]
     robot.hold = lambda: state.update(held=True) or 0
