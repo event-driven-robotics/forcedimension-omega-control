@@ -26,6 +26,7 @@ def device(monkeypatch):
                          ("matplotlib", types.ModuleType("matplotlib")),
                          ("matplotlib.pyplot", types.ModuleType("matplotlib.pyplot"))):
         monkeypatch.setitem(sys.modules, name, module)
+    sys.modules["numpy"].ndarray = object
     monkeypatch.delitem(sys.modules, "omega_control.omega_control", raising=False)
     module = importlib.import_module("omega_control.omega_control")
     calls = []
