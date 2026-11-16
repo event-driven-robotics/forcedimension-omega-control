@@ -461,7 +461,9 @@ class OmegaRobot:
         if not self._is_open:
             raise RuntimeError("Cannot request BRAKE: device is not open")
         try:
-            status = dhd.stop(self.device_id)
+            # Coordinate BRAKE with native recording reads and checked control.
+            with self._sdk_lock:
+                status = dhd.stop(self.device_id)
         except Exception as exc:
             raise RuntimeError("DHD BRAKE request raised an exception; "
                                "physical stop unverified") from exc
