@@ -1,7 +1,8 @@
 """Read and display the Omega end-effector state.
 
-Initialization may move the device. Run only with the robot supervised and
-with a clear workspace. This example sends no Cartesian motion trajectory.
+Initialization may move the device. Run only with a supervised, clear
+workspace. Device selection uses DRD index plus expected serial, not DHD
+serial-only opening. This example sends no Cartesian trajectory.
 """
 import argparse
 import math
@@ -13,9 +14,16 @@ from omega_control import OmegaRobot
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--device-index",
+        type=int,
+        required=True,
+        help="Explicit DRD enumeration index (verify it with device_info_example.py)",
+    )
+    parser.add_argument(
         "--serial",
         type=int,
-        help="Optionally require this hardware serial number before initialization",
+        required=True,
+        help="Expected hardware serial number (verified before initialization)",
     )
     parser.add_argument(
         "--duration",
@@ -46,7 +54,7 @@ def main() -> None:
     )
 
     try:
-        robot.open(expected_serial=args.serial)
+        robot.open(device_index=args.device_index, expected_serial=args.serial)
         print(f"Connected to serial number {robot.get_serial_number()}")
 
         # Initialization may move the robot to its reference position.
@@ -67,8 +75,9 @@ def main() -> None:
         print("Initial velocity:", robot.get_vel())
         print("Initial force:", robot.get_force())
 
+        # Position reads may legitimately use SDK TimeGuard-cached data.
         # For repeated monitoring, read_checked_state() groups the three
-        # checked reads under one SDK lock.
+        # checked reads under one SDK lock (not one hardware sample).
         deadline = time.monotonic() + args.duration
         while time.monotonic() < deadline:
             position, velocity, force = robot.read_checked_state()
