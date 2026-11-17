@@ -6,7 +6,6 @@ if __name__ == "__main__":
 
     N = 50                # number of repetitions
     amplitude = 0.09      # 9 cm
-    pause = 0.3           # seconds between moves
     vmax = 0.1
 
     robot = OmegaRobot(verbose=False)
