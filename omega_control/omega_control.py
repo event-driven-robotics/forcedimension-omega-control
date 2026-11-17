@@ -53,6 +53,7 @@ configure_forcedimension_sdk()
 
 import forcedimension_core.dhd as dhd
 import forcedimension_core.drd as drd
+from forcedimension_core.constants import TIMEGUARD as DHD_TIMEGUARD
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
@@ -585,15 +586,21 @@ class OmegaRobot:
         return list(values)
 
     @staticmethod
-    def _read_vector_checked(reader, name):
-        """Decode one DHD read with a checked return code and finite samples.
+    def _read_vector_checked(reader, name, *, allow_timeguard=False):
+        """Validate one DHD vector read, including SDK-specific success codes.
 
-        The caller must hold _sdk_lock. Do not mutate live cached vectors until
-        all values have been verified.
+        DHD getPosition() returns 0 OR TIMEGUARD (=1) on success. TIMEGUARD
+        means the SDK reused recently cached data; it is not a fresh device
+        acquisition. In contrast getLinearVelocity() and getForce() document
+        only 0 as success, so they must still fail closed on status 1.
+        The caller holds _sdk_lock; never mutate cached vectors unless *all*
+        read values are finite and their status is accepted.
         """
         values = [math.nan, math.nan, math.nan]
         status = reader(values)
-        if type(status) is not int or status != 0:
+        if type(status) is not int or (
+            status != 0 and not (allow_timeguard and status == DHD_TIMEGUARD)
+        ):
             raise RuntimeError(f"DHD {name} read failed with status {status!r}")
         if not all(math.isfinite(value) for value in values):
             raise RuntimeError(f"DHD {name} read returned non-finite values")
@@ -602,7 +609,9 @@ class OmegaRobot:
     def get_pos(self):
         """Return the position list, raising on failed or invalid DHD reads."""
         with self._sdk_lock:
-            values = self._read_vector_checked(dhd.getPosition, "position")
+            values = self._read_vector_checked(
+                dhd.getPosition, "position", allow_timeguard=True
+            )
             self.pos = values
             return self.pos
 
@@ -624,11 +633,15 @@ class OmegaRobot:
         """Read position, velocity and force together under a single SDK lock.
 
         This combined snapshot remains useful for recording. Its individual
-        DHD reads share the checks used by get_pos/get_vel/get_force. It is
-        not a safety-rated watchdog or an independent hardware timestamp.
+        DHD reads share the checks used by get_pos/get_vel/get_force. A
+        TimeGuard-accepted position can reuse very recent cached SDK data;
+        this method does not attest hardware sample freshness. It is not a
+        safety-rated watchdog or an independent hardware timestamp.
         """
         with self._sdk_lock:
-            position = self._read_vector_checked(dhd.getPosition, "position")
+            position = self._read_vector_checked(
+                dhd.getPosition, "position", allow_timeguard=True
+            )
             velocity = self._read_vector_checked(dhd.getLinearVelocity, "velocity")
             force = self._read_vector_checked(dhd.getForce, "force")
             self.pos, self.vel, self.force = position, velocity, force
