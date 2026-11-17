@@ -295,163 +295,142 @@ python test_sdk.py
 
 ## Usage Examples
 
-This repository includes several example scripts demonstrating different capabilities of the OmegaX control framework. All examples use the `OmegaRobot` class which provides a high-level interface to the Force Dimension SDK.
+The runnable scripts are in [`omega_control/scripts/`](omega_control/scripts/).
+These scripts are the source of truth for example code, rather than maintaining
+separate copies in this README. **All scripts interacting with hardware require
+a supervised setup.** Device initialization, including the default
+`OmegaRobot()` constructor, can move the device. Confirm a clear workspace,
+suitable motion/force limits, and an accessible independent emergency stop.
 
-### Validated Omega API
-
-The original `OmegaRobot` methods now validate native SDK acknowledgments and
-reject invalid values: `set_pos()`, `get_pos()`, `get_vel()`, `get_force()`,
-`get_serial_number()`, and `set_pos_param()`. Their successful return shapes
-are unchanged: `set_pos()` and `set_pos_param()` return `True`, getters
-return their previous lists/tuples or serial number. `set_force()` now
-returns the SDK status `0` on success, rather than discarding it.
-
-**A rejected SDK operation raises `RuntimeError`.** Legacy callers that
-ignored the return value now detect failure through the exception instead of
-silently continuing. Use `set_pos(..., tracking=True)`,
-`get_serial_number()`, and `set_pos_param(..., tracking=True)`;
-the former redundant aliases have been removed.
-
-`read_checked_state()` remains distinct because it samples position,
-velocity, and force under one lock for logging.
-
-A successful SDK return only acknowledges a command or sensor read. It does
-not independently verify completed physical motion, force delivery, hardware
-braking, or a safety-rated stop. Supervise every test on actual hardware.
-
-### Basic Motion Control (`motion_example.py`)
-
-Simple point-to-point movements along each axis with data recording:
-
-```python
-from omega_control import OmegaRobot
-
-robot = OmegaRobot(verbose=False)
-robot.to_origin()
-
-robot.start_recording(freq=1000)   # Record at 1 kHz
-
-# Move along each axis and return to origin
-robot.set_pos([0.05, 0.0, 0.0])  # Move 5cm along X
-robot.to_origin()
-robot.set_pos([0.0, 0.05, 0.0])  # Move 5cm along Y
-robot.to_origin()
-robot.set_pos([0.0, 0.0, 0.05])  # Move 5cm along Z
-robot.to_origin()
-
-robot.stop_recording()
-filename = robot.save_log(filename="axis_finding")
-robot.close()
-
-# Visualize the recorded data
-robot.plot_log(filename=filename)
-```
-
-### Trajectory Control (`trajectory_example.py`)
-
-Continuous sinusoidal motion with real-time trajectory tracking:
-
-```python
-import math
-import time
-from omega_control import OmegaRobot
-
-# Parameters
-amplitude = 0.03   # 3 cm amplitude
-frequency = 0.25   # 0.25 Hz (4 second period)
-duration = 5.0     # Run for 5 seconds
-
-robot = OmegaRobot(verbose=False)
-robot.to_origin()
-robot.start_recording(freq=1000)
-
-# Generate smooth trajectory
-t0 = time.time()
-while (time.time() - t0) < duration:
-    t = time.time() - t0
-    x = amplitude * math.sin(2 * math.pi * frequency * t)
-    y = 1.5 * amplitude * math.sin(2 * math.pi * frequency * t)
-    z = 0.5 * amplitude * math.sin(2 * math.pi * frequency * t)
-    
-    robot.set_pos([x, y, z], tracking=True)  # Continuous tracking
-    time.sleep(0.001)  # ~1 kHz control loop
-
-robot.stop_recording()
-robot.save_log(filename="trajectory")
-robot.close()
-```
-
-### Data Recording (`data_recording_example.py`)
-
-High-frequency data collection of position, velocity, and force:
-
-```python
-import time
-from omega_control import OmegaRobot
-
-robot = OmegaRobot(verbose=True)
-robot.to_origin()
-
-# Record at high frequency
-robot.start_recording(freq=10000)  # 10 kHz sampling
-time.sleep(2)                      # Collect for 2 seconds
-robot.stop_recording()
-
-# Save and visualize data
-filename = robot.save_log()
-robot.close()
-robot.plot_log(filename=filename)
-```
-
-### Force Preloading (`preload_example.py`)
-
-Apply controlled force along an axis using a PID outer position loop:
-
-```python
-from omega_control import OmegaRobot
-
-robot = OmegaRobot(verbose=True)
-robot.to_origin()
-
-# Move to starting position
-robot.set_pos([0.0, 0.0, -0.052])
-
-robot.start_recording(freq=1000)
-
-# Apply 1N downward force along Z-axis with a PID outer loop
-result = robot.preload(
-    target_axis="z",
-    target_force=-1.0,
-    kp=1e-3,
-    ki=0.0,
-    max_force=2.0,
-    max_displacement=0.01,
-)
-print(result.status.value, result.final_force, result.final_position)
-
-robot.stop_recording()
-robot.save_log(filename="preload_data")
-robot.close()
-```
-
-### Running the Examples
-
-To run any example:
+Before running a hardware example, install the SDK and check discovery with:
 
 ```bash
-python omega_control/scripts/motion_example.py
-python omega_control/scripts/trajectory_example.py
-python omega_control/scripts/data_recording_example.py
-python omega_control/scripts/preload_example.py
+omega-control doctor
 ```
 
-Each example will:
-1. Initialize the robot connection
-2. Perform the specified motion/control task
-3. Record position, velocity, and force data
-4. Save data to HDF5 format
-5. Generate plots showing the recorded data
-6. Safely close the robot connection
+The doctor command checks SDK loading, **not** the connected hardware or
+physical safety.
+
+**Initialization pattern:** Every example that initializes a robot requires
+both `--device-index` and `--serial`. The script calls
+`robot.open(device_index=INDEX, expected_serial=SERIAL)`, verifies the serial,
+and only then calls `robot.initialize()`. This explicitly uses the DRD
+index-opening API; it does **not** initialize a serial-only DHD connection.
+Run the identity example first to identify the correct index and serial.
+Enumeration indices can change between sessions. The serial verification is
+what prevents proceeding with an unintended robot.
+
+This choice follows the supervised omega.3 field finding recorded in
+[`docs/R00B_OMEGA_HARDWARE_FINDINGS_20261117.md`](docs/R00B_OMEGA_HARDWARE_FINDINGS_20261117.md):
+DRD-index opening was followed by an acknowledged initialization, whereas an
+earlier DHD-serial opening was followed by failed DRD initialization and
+cleanup. The difference is not yet proven to be the cause; hardware
+qualification remains incomplete. No example silently falls back to another
+device. An initialization acknowledgment does not verify physical safety.
+
+| Script | Demonstrates | Motion considerations |
+| --- | --- | --- |
+| [`device_info_example.py`](omega_control/scripts/device_info_example.py) | Open a device without initializing, get its serial number and SDK device ID, verify expected identity, close | Requests no initialization or motion; verify SDK open behavior for your device |
+| [`read_state_example.py`](omega_control/scripts/read_state_example.py) | Checked position, velocity, force and combined-state reads; display control frequency | Initialization can move the device |
+| [`motion_example.py`](omega_control/scripts/motion_example.py) | Checked Cartesian moves, SDK acknowledgment, recording-health checks and cleanup | Commands motion; supervise and validate workspace |
+| [`motion_parameters_example.py`](omega_control/scripts/motion_parameters_example.py) | Read, adjust and restore move/tracking velocity, acceleration and jerk limits | Initialization can move; limit changes do not command a trajectory |
+| [`data_recording_example.py`](omega_control/scripts/data_recording_example.py) | Capture checked state, check recorder health, use `return_log()`, save HDF5 and plot | Initialization can move the device |
+| [`preload_example.py`](omega_control/scripts/preload_example.py) | Bounded PID force preload and `PreloadStatus` result handling | Requires supervised known contact geometry |
+| [`motion_example_periodic.py`](omega_control/scripts/motion_example_periodic.py) | Repeated linear movement | Commands repeated motion |
+| [`trajectory_example.py`](omega_control/scripts/trajectory_example.py) | Sinusoidal tracking trajectory | Commands continuous motion |
+| [`trajectory_circle_example.py`](omega_control/scripts/trajectory_circle_example.py) | Circular tracking trajectory | Commands continuous motion |
+| [`trajectory_8_example.py`](omega_control/scripts/trajectory_8_example.py) | Figure-eight tracking trajectory | Commands continuous motion |
+
+### Identifying a device without initializing it
+
+```bash
+python omega_control/scripts/device_info_example.py --device-index 0
+python omega_control/scripts/device_info_example.py --serial 123456
+python omega_control/scripts/device_info_example.py --device-index 0 --serial 123456
+```
+
+`--device-index` selects an SDK enumeration index. `--serial` alone opens
+the device by hardware serial number for **identity-only inspection**; this
+DHD serial-opening path should not be assumed compatible with the DRD
+initialization workflow. Supplying both arguments verifies the selected index
+against the expected serial. On mismatch, opening fails rather than silently
+choosing another robot. The identity script does **not** initialize the device
+or request movement, but SDK open behavior is device-dependent.
+
+### Reading state and configuring motion limits
+
+```bash
+python omega_control/scripts/read_state_example.py --device-index 0 --serial 123456 --duration 5 --interval 0.2
+python omega_control/scripts/motion_parameters_example.py --device-index 0 --serial 123456
+```
+
+The state example uses `get_pos()`, `get_vel()`, `get_force()`, and
+`read_checked_state()`. Measured positions are in metres, linear velocities
+in m/s, forces in N, and `get_control_freq()` reports kHz. A checked read
+raises `RuntimeError` on rejected or invalid SDK data. Under the latest
+checked API, a position read with DHD `TIMEGUARD=1` is accepted as a
+documented successful read of **recently cached SDK position data**; it does
+not establish that the sample was freshly acquired. Velocity and force reads
+still require status `0`. The combined read acquires position, velocity and
+force under one SDK lock, **not** as an atomically synchronized hardware
+measurement or a freshness guarantee.
+
+The parameter example shows both position-move and tracking limits. The
+`get_pos_param()` return shape is `(vmax, amax, jerk, status)`.
+`set_pos_param()` returns `True` for an acknowledged and validated change,
+raising on failure. The example restores initialization-time defaults and
+closes the device during cleanup.
+
+### Motion and command return values
+
+```bash
+python omega_control/scripts/motion_example.py --device-index 0 --serial 123456
+python omega_control/scripts/motion_example_periodic.py --device-index 0 --serial 123456
+```
+
+The checked `set_pos()` method returns `True` when the SDK acknowledges the
+command and raises `RuntimeError` on a rejected command. It does **not**
+independently guarantee physical arrival. `to_origin()` delegates to
+`set_pos()` but returns `None` on success. `initialize()` and `stop()`
+also return `True` on successful SDK acknowledgment, but a successful BRAKE
+request is not proof of physical braking. Other legacy methods may still
+return raw SDK status codes (for example, `hold()`), while `set_force()`
+returns SDK status `0` on success.
+
+### Recording and force preloading
+
+```bash
+python omega_control/scripts/data_recording_example.py --device-index 0 --serial 123456
+python omega_control/scripts/preload_example.py --device-index 0 --serial 123456
+```
+
+The recording example calls `check_recording_health()`, stops the recorder
+before accessing samples, and demonstrates `return_log()` as an alternative
+to file output. `save_log()` stores the samples in HDF5 format, while
+`plot_log()` visualizes them. The requested sampling frequency is **not**
+a verified deterministic acquisition rate: logged time is wall-clock-derived
+elapsed time rather than calibrated MCU or host-monotonic sample time.
+
+The preload method returns a `PreloadResult`; a returned object does not
+mean force acquisition succeeded. Check `result.status` (or
+`result.reached`) to distinguish settled acquisition from timeout, limits,
+invalid measurements, or device errors. Always configure force direction and
+limits for your end-effector and contact geometry.
+
+The trajectory examples also use the verified staged initialization workflow:
+
+```bash
+python omega_control/scripts/trajectory_example.py --device-index 0 --serial 123456
+python omega_control/scripts/trajectory_circle_example.py --device-index 0 --serial 123456
+python omega_control/scripts/trajectory_8_example.py --device-index 0 --serial 123456
+```
+
+Replace `0` and `123456` with your actual enumerated device index and
+verified hardware serial number. **Do not run an initializing example with
+guessed device identity.** All updated examples use `try/finally` to attempt
+cleanup after failures.
+The SDK and software cannot independently confirm an emergency stop or
+physical braking. Do not infer hardware qualification from offline tests.
 
 ## Troubleshooting
 
