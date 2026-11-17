@@ -297,7 +297,7 @@ python test_sdk.py
 
 This repository includes several example scripts demonstrating different capabilities of the OmegaX control framework. All examples use the `OmegaRobot` class which provides a high-level interface to the Force Dimension SDK.
 
-### Checked legacy API and compatibility
+### Validated Omega API
 
 The original `OmegaRobot` methods now validate native SDK acknowledgments and
 reject invalid values: `set_pos()`, `get_pos()`, `get_vel()`, `get_force()`,
@@ -308,11 +308,12 @@ returns the SDK status `0` on success, rather than discarding it.
 
 **A rejected SDK operation raises `RuntimeError`.** Legacy callers that
 ignored the return value now detect failure through the exception instead of
-silently continuing. The old redundant `_checked` compatibility aliases are removed. Use
-`set_pos(..., tracking=True)`, `get_serial_number()`, and
-`set_pos_param(..., tracking=True)` instead. `read_checked_state()`
-remains distinct because it samples position, velocity, and force under
-one lock for logging.
+silently continuing. Use `set_pos(..., tracking=True)`,
+`get_serial_number()`, and `set_pos_param(..., tracking=True)`;
+the former redundant aliases have been removed.
+
+`read_checked_state()` remains distinct because it samples position,
+velocity, and force under one lock for logging.
 
 A successful SDK return only acknowledges a command or sensor read. It does
 not independently verify completed physical motion, force delivery, hardware
