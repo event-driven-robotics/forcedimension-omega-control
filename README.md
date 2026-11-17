@@ -311,6 +311,23 @@ omega-control doctor
 The doctor command checks SDK loading, **not** the connected hardware or
 physical safety.
 
+**Initialization pattern:** Every example that initializes a robot requires
+both `--device-index` and `--serial`. The script calls
+`robot.open(device_index=INDEX, expected_serial=SERIAL)`, verifies the serial,
+and only then calls `robot.initialize()`. This explicitly uses the DRD
+index-opening API; it does **not** initialize a serial-only DHD connection.
+Run the identity example first to identify the correct index and serial.
+Enumeration indices can change between sessions. The serial verification is
+what prevents proceeding with an unintended robot.
+
+This choice follows the supervised omega.3 field finding recorded in
+[`docs/R00B_OMEGA_HARDWARE_FINDINGS_20261117.md`](docs/R00B_OMEGA_HARDWARE_FINDINGS_20261117.md):
+DRD-index opening was followed by an acknowledged initialization, whereas an
+earlier DHD-serial opening was followed by failed DRD initialization and
+cleanup. The difference is not yet proven to be the cause; hardware
+qualification remains incomplete. No example silently falls back to another
+device. An initialization acknowledgment does not verify physical safety.
+
 | Script | Demonstrates | Motion considerations |
 | --- | --- | --- |
 | [`device_info_example.py`](omega_control/scripts/device_info_example.py) | Open a device without initializing, get its serial number and SDK device ID, verify expected identity, close | Requests no initialization or motion; verify SDK open behavior for your device |
@@ -333,25 +350,30 @@ python omega_control/scripts/device_info_example.py --device-index 0 --serial 12
 ```
 
 `--device-index` selects an SDK enumeration index. `--serial` alone opens
-the device by hardware serial number; supplying both verifies that the selected
-index matches the expected serial number. On mismatch, opening fails rather
-than silently choosing another robot. The script does **not** initialize the
-device or request movement, but SDK open behavior is device-dependent.
+the device by hardware serial number for **identity-only inspection**; this
+DHD serial-opening path should not be assumed compatible with the DRD
+initialization workflow. Supplying both arguments verifies the selected index
+against the expected serial. On mismatch, opening fails rather than silently
+choosing another robot. The identity script does **not** initialize the device
+or request movement, but SDK open behavior is device-dependent.
 
 ### Reading state and configuring motion limits
 
 ```bash
-python omega_control/scripts/read_state_example.py --duration 5 --interval 0.2
-python omega_control/scripts/read_state_example.py --serial 123456
-python omega_control/scripts/motion_parameters_example.py
+python omega_control/scripts/read_state_example.py --device-index 0 --serial 123456 --duration 5 --interval 0.2
+python omega_control/scripts/motion_parameters_example.py --device-index 0 --serial 123456
 ```
 
 The state example uses `get_pos()`, `get_vel()`, `get_force()`, and
 `read_checked_state()`. Measured positions are in metres, linear velocities
 in m/s, forces in N, and `get_control_freq()` reports kHz. A checked read
-raises `RuntimeError` on rejected or invalid SDK data. The combined read
-acquires position, velocity and force under one SDK lock, **not** as an
-atomically synchronized hardware measurement.
+raises `RuntimeError` on rejected or invalid SDK data. Under the latest
+checked API, a position read with DHD `TIMEGUARD=1` is accepted as a
+documented successful read of **recently cached SDK position data**; it does
+not establish that the sample was freshly acquired. Velocity and force reads
+still require status `0`. The combined read acquires position, velocity and
+force under one SDK lock, **not** as an atomically synchronized hardware
+measurement or a freshness guarantee.
 
 The parameter example shows both position-move and tracking limits. The
 `get_pos_param()` return shape is `(vmax, amax, jerk, status)`.
@@ -362,7 +384,8 @@ closes the device during cleanup.
 ### Motion and command return values
 
 ```bash
-python omega_control/scripts/motion_example.py
+python omega_control/scripts/motion_example.py --device-index 0 --serial 123456
+python omega_control/scripts/motion_example_periodic.py --device-index 0 --serial 123456
 ```
 
 The checked `set_pos()` method returns `True` when the SDK acknowledges the
@@ -377,8 +400,8 @@ returns SDK status `0` on success.
 ### Recording and force preloading
 
 ```bash
-python omega_control/scripts/data_recording_example.py
-python omega_control/scripts/preload_example.py
+python omega_control/scripts/data_recording_example.py --device-index 0 --serial 123456
+python omega_control/scripts/preload_example.py --device-index 0 --serial 123456
 ```
 
 The recording example calls `check_recording_health()`, stops the recorder
@@ -394,7 +417,18 @@ mean force acquisition succeeded. Check `result.status` (or
 invalid measurements, or device errors. Always configure force direction and
 limits for your end-effector and contact geometry.
 
-All updated examples use `try/finally` to attempt cleanup after failures.
+The trajectory examples also use the verified staged initialization workflow:
+
+```bash
+python omega_control/scripts/trajectory_example.py --device-index 0 --serial 123456
+python omega_control/scripts/trajectory_circle_example.py --device-index 0 --serial 123456
+python omega_control/scripts/trajectory_8_example.py --device-index 0 --serial 123456
+```
+
+Replace `0` and `123456` with your actual enumerated device index and
+verified hardware serial number. **Do not run an initializing example with
+guessed device identity.** All updated examples use `try/finally` to attempt
+cleanup after failures.
 The SDK and software cannot independently confirm an emergency stop or
 physical braking. Do not infer hardware qualification from offline tests.
 
