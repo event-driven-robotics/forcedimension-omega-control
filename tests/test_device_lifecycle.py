@@ -134,3 +134,15 @@ def test_serial_number_requires_open_device(device):
     with pytest.raises(RuntimeError, match="not open"):
         robot.get_serial_number()
     assert not calls
+
+
+def test_redundant_public_checked_aliases_are_removed(device):
+    module, _fd, _calls = device
+    for name in (
+        "get_serial_number_checked",
+        "track_pos_checked",
+        "set_tracking_params_checked",
+    ):
+        assert not hasattr(module.OmegaRobot, name)
+    # Combined state acquisition remains a distinct recording operation.
+    assert hasattr(module.OmegaRobot, "read_checked_state")
