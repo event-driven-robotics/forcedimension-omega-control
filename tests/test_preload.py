@@ -24,6 +24,10 @@ def simulated_robot(monkeypatch):
     dhd = types.ModuleType("forcedimension_core.dhd")
     forcedimension.drd = drd
     forcedimension.dhd = dhd
+    constants = types.ModuleType("forcedimension_core.constants")
+    constants.TIMEGUARD = 1
+    forcedimension.constants = constants
+    monkeypatch.setitem(sys.modules, "forcedimension_core.constants", constants)
     monkeypatch.setitem(sys.modules, "forcedimension_core", forcedimension)
     monkeypatch.setitem(sys.modules, "forcedimension_core.drd", drd)
     monkeypatch.setitem(sys.modules, "forcedimension_core.dhd", dhd)
