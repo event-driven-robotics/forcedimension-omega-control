@@ -18,9 +18,12 @@ def device(monkeypatch):
     fd = types.ModuleType("forcedimension_core")
     fd.dhd = types.ModuleType("forcedimension_core.dhd")
     fd.drd = types.ModuleType("forcedimension_core.drd")
+    fd.constants = types.ModuleType("forcedimension_core.constants")
+    fd.constants.TIMEGUARD = 1
     for name, module in (("forcedimension_core", fd),
                          ("forcedimension_core.dhd", fd.dhd),
                          ("forcedimension_core.drd", fd.drd),
+                         ("forcedimension_core.constants", fd.constants),
                          ("h5py", types.ModuleType("h5py")),
                          ("numpy", types.ModuleType("numpy")),
                          ("matplotlib", types.ModuleType("matplotlib")),
@@ -146,3 +149,100 @@ def test_redundant_public_checked_aliases_are_removed(device):
         assert not hasattr(module.OmegaRobot, name)
     # Combined state acquisition remains a distinct recording operation.
     assert hasattr(module.OmegaRobot, "read_checked_state")
+
+
+def test_timeguard_position_status_is_success_for_get_pos_and_snapshot(device):
+    """Real SDK position read may return cached TimeGuard data with status 1."""
+    module, fd, _calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+
+    def position(out):
+        out[:] = [0.012, 0.034, 0.056]
+        return fd.constants.TIMEGUARD
+
+    def velocity(out):
+        out[:] = [0.0, 0.1, 0.2]
+        return 0
+
+    def force(out):
+        out[:] = [0.0, 0.0, 0.3]
+        return 0
+
+    fd.dhd.getPosition = position
+    fd.dhd.getLinearVelocity = velocity
+    fd.dhd.getForce = force
+    assert robot.get_pos() == [0.012, 0.034, 0.056]
+    assert robot.read_checked_state() == (
+        (0.012, 0.034, 0.056),
+        (0.0, 0.1, 0.2),
+        (0.0, 0.0, 0.3),
+    )
+
+
+@pytest.mark.parametrize("bad_status", [-1, 2, None, True])
+def test_position_rejects_undocumented_or_invalid_status(device, bad_status):
+    module, fd, _calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+    robot.pos = [5.0, 6.0, 7.0]
+
+    def bad_read(out):
+        out[:] = [1.0, 2.0, 3.0]
+        return bad_status
+
+    fd.dhd.getPosition = bad_read
+    with pytest.raises(RuntimeError, match="DHD position read failed"):
+        robot.get_pos()
+    assert robot.pos == [5.0, 6.0, 7.0]
+
+
+def test_timeguard_position_with_missing_values_is_rejected(device):
+    module, fd, _calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+    robot.pos = [5.0, 6.0, 7.0]
+    fd.dhd.getPosition = lambda out: fd.constants.TIMEGUARD
+    with pytest.raises(RuntimeError, match="non-finite"):
+        robot.get_pos()
+    assert robot.pos == [5.0, 6.0, 7.0]
+
+
+@pytest.mark.parametrize(("reader_name", "method_name"), [
+    ("getLinearVelocity", "get_vel"),
+    ("getForce", "get_force"),
+])
+def test_timeguard_remains_error_for_reads_that_only_document_zero(
+    device, reader_name, method_name,
+):
+    module, fd, _calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+
+    def read(out):
+        out[:] = [1.0, 2.0, 3.0]
+        return fd.constants.TIMEGUARD
+
+    setattr(fd.dhd, reader_name, read)
+    with pytest.raises(RuntimeError, match="read failed with status 1"):
+        getattr(robot, method_name)()
+
+
+def test_snapshot_failure_does_not_publish_partially_updated_state(device):
+    module, fd, _calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+    robot.pos = [7.0, 8.0, 9.0]
+    robot.vel = [0.0, 0.0, 0.0]
+    robot.force = [3.0, 2.0, 1.0]
+
+    def position(out):
+        out[:] = [0.1, 0.2, 0.3]
+        return fd.constants.TIMEGUARD
+
+    def velocity(out):
+        out[:] = [0.4, 0.5, 0.6]
+        return -1
+
+    fd.dhd.getPosition = position
+    fd.dhd.getLinearVelocity = velocity
+    with pytest.raises(RuntimeError, match="velocity read failed"):
+        robot.read_checked_state()
+    assert robot.pos == [7.0, 8.0, 9.0]
+    assert robot.vel == [0.0, 0.0, 0.0]
+    assert robot.force == [3.0, 2.0, 1.0]
