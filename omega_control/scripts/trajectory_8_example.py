@@ -6,7 +6,7 @@ from omega_control import OmegaRobot
 if __name__ == "__main__":
 
     # Motion parameters
-    amplitude = 0.03      # 3c cm
+    amplitude = 0.03      # 3 cm
     frequency = 0.25      # Hz
     duration = 25.0        # seconds
 
