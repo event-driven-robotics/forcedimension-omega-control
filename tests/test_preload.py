@@ -167,7 +167,7 @@ def test_tracking_limits_verify_sdk_status_and_readback(simulated_robot):
 
     module.drd.setPosTrackParam = set_params
     module.drd.getPosTrackParam = lambda device: state["params"]
-    assert robot.set_pos_param(.01, .1, 1.0, tracking=True) == (.01, .1, 1.0, tracking=True)
+    assert robot.set_pos_param(.01, .1, 1.0, tracking=True) is True
     state["status"] = -1
     with pytest.raises(RuntimeError, match="setPosTrackParam failed"):
         robot.set_pos_param(.01, .1, 1.0, tracking=True)
@@ -331,8 +331,6 @@ def test_original_set_pos_checks_tracking_and_discrete_movement(simulated_robot)
     with pytest.raises(RuntimeError, match="moveToPos failed"):
         robot.set_pos([0, 0, 0])
     module.drd.trackPos = lambda target: None
-    with pytest.raises(RuntimeError, match="trackPos failed"):
-        robot.set_pos([0, 0, 0], tracking=True)
     with pytest.raises(RuntimeError, match="trackPos failed"):
         robot.set_pos([0, 0, 0], tracking=True)
     with pytest.raises(ValueError, match="three finite"):
