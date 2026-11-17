@@ -51,7 +51,7 @@ def test_staged_construction_never_opens_or_initializes(device):
     assert not calls and not robot.is_open()
     robot.open(device_index=1, expected_serial=42)
     assert calls == [("openID", 1)]
-    assert robot.get_serial_number_checked() == 42
+    assert robot.get_serial_number() == 42
     robot.initialize()
     assert calls == [("openID", 1), "autoInit"]
     assert robot.default_track_param == (.1, .2, .3, 0)
@@ -122,13 +122,10 @@ def test_original_serial_number_checks_sdk_and_preserves_return_type(device):
     robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
     robot.open()
     assert robot.get_serial_number() == 42
-    assert robot.get_serial_number_checked() == 42
 
     fd.dhd.getSerialNumber = lambda _id: -1
     with pytest.raises(RuntimeError, match="getSerialNumber failed"):
         robot.get_serial_number()
-    with pytest.raises(RuntimeError, match="getSerialNumber failed"):
-        robot.get_serial_number_checked()
 
 
 def test_serial_number_requires_open_device(device):
