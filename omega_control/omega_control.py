@@ -192,7 +192,7 @@ class OmegaRobot:
             if device_index is not None:
                 raise RuntimeError("Cannot select a device while already open")
             if (expected_serial is not None
-                    and self.get_serial_number_checked() != expected_serial):
+                    and self.get_serial_number() != expected_serial):
                 raise RuntimeError("Opened device serial number does not match")
             return self.device_id
 
@@ -209,7 +209,7 @@ class OmegaRobot:
         self._is_open = True
         try:
             if expected_serial is not None:
-                actual = self.get_serial_number_checked()
+                actual = self.get_serial_number()
                 if actual != expected_serial:
                     raise RuntimeError(
                         f"Device serial mismatch: expected {expected_serial}, got {actual}"
@@ -429,10 +429,6 @@ class OmegaRobot:
             raise RuntimeError(f"DHD getSerialNumber failed: {serial!r}")
         return serial
 
-    def get_serial_number_checked(self):
-        """Compatibility alias; get_serial_number() is now checked."""
-        return self.get_serial_number()
-
     def get_control_freq(self):
         """
         This function returns the average refresh rate of the control loop
@@ -637,17 +633,6 @@ class OmegaRobot:
             force = self._read_vector_checked(dhd.getForce, "force")
             self.pos, self.vel, self.force = position, velocity, force
             return tuple(tuple(values) for values in (position, velocity, force))
-
-    def track_pos_checked(self, target):
-        """Compatibility alias; set_pos(..., tracking=True) is now checked."""
-        return self.set_pos(target, tracking=True)
-
-    def set_tracking_params_checked(self, vmax, amax, jerk):
-        """Compatibility alias; set_pos_param() is now checked.
-
-        Retain this method's historical readback-tuple return contract.
-        """
-        return self._set_pos_params_checked(vmax, amax, jerk, tracking=True)
 
     def set_pos(self, target: list[float], block: bool = True, tracking: bool = False):
         """Move or track the end-effector, verifying the DRD acknowledgment.
