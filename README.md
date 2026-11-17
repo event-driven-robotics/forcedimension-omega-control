@@ -308,11 +308,11 @@ returns the SDK status `0` on success, rather than discarding it.
 
 **A rejected SDK operation raises `RuntimeError`.** Legacy callers that
 ignored the return value now detect failure through the exception instead of
-silently continuing. The names `track_pos_checked()`,
-`get_serial_number_checked()`, and `set_tracking_params_checked()` remain
-available as compatibility adapters, with no duplicate SDK call paths.
-`read_checked_state()` remains distinct because it samples position,
-velocity, and force under one lock for logging.
+silently continuing. The old redundant `_checked` compatibility aliases are removed. Use
+`set_pos(..., tracking=True)`, `get_serial_number()`, and
+`set_pos_param(..., tracking=True)` instead. `read_checked_state()`
+remains distinct because it samples position, velocity, and force under
+one lock for logging.
 
 A successful SDK return only acknowledges a command or sensor read. It does
 not independently verify completed physical motion, force delivery, hardware
