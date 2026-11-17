@@ -270,3 +270,117 @@ def test_recording_frequency_validation(simulated_robot):
     for freq in [0, -1, float("nan"), float("inf"), True]:
         with pytest.raises(ValueError, match="frequency"):
             robot.start_recording(freq=freq)
+
+
+def test_original_getters_return_lists_and_reject_bad_reads(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot.pos = [0.0, 0.0, 0.0]
+    robot.vel = [0.0, 0.0, 0.0]
+    robot.force = [0.0, 0.0, 0.0]
+
+    def read(values, result):
+        values[:] = result
+        return 0
+
+    module.dhd.getPosition = lambda values: read(values, [0.1, 0.2, 0.3])
+    module.dhd.getLinearVelocity = lambda values: read(values, [0.0, 0.1, 0.0])
+    module.dhd.getForce = lambda values: read(values, [0.5, 0.0, 0.0])
+
+    # Fixture overrides the original get_pos() to simulate the preload spring.
+    assert module.OmegaRobot.get_pos(robot) == [0.1, 0.2, 0.3]
+    assert module.OmegaRobot.get_vel(robot) == [0.0, 0.1, 0.0]
+    assert module.OmegaRobot.get_force(robot) == [0.5, 0.0, 0.0]
+
+    module.dhd.getPosition = lambda values: -1
+    with pytest.raises(RuntimeError, match="position read failed"):
+        module.OmegaRobot.get_pos(robot)
+
+    module.dhd.getLinearVelocity = lambda values: None
+    with pytest.raises(RuntimeError, match="velocity read failed"):
+        module.OmegaRobot.get_vel(robot)
+
+    module.dhd.getForce = lambda values: read(values, [float("nan"), 0, 0])
+    with pytest.raises(RuntimeError, match="non-finite"):
+        module.OmegaRobot.get_force(robot)
+
+
+def test_original_set_pos_checks_tracking_and_discrete_movement(simulated_robot):
+    robot, module, state = simulated_robot
+    calls = []
+
+    def move(target, block=True):
+        calls.append(("move", tuple(target), block))
+        return 0
+
+    def track(target):
+        calls.append(("track", tuple(target)))
+        return 0
+
+    module.drd.moveToPos = move
+    module.drd.trackPos = track
+    assert robot.set_pos([0, 0.01, 0.02]) is True
+    assert robot.set_pos([0.02, 0.03, 0], block=False) is True
+    assert robot.set_pos([0, 0, 0.01], tracking=True) is True
+    assert calls == [
+        ("move", (0.0, 0.01, 0.02), True),
+        ("move", (0.02, 0.03, 0.0), False),
+        ("track", (0.0, 0.0, 0.01)),
+    ]
+
+    module.drd.moveToPos = lambda target, block=True: -1
+    with pytest.raises(RuntimeError, match="moveToPos failed"):
+        robot.set_pos([0, 0, 0])
+    module.drd.trackPos = lambda target: None
+    with pytest.raises(RuntimeError, match="trackPos failed"):
+        robot.set_pos([0, 0, 0], tracking=True)
+    with pytest.raises(RuntimeError, match="trackPos failed"):
+        robot.track_pos_checked([0, 0, 0])
+    with pytest.raises(ValueError, match="three finite"):
+        robot.set_pos([float("inf"), 0, 0], tracking=True)
+
+
+def test_original_set_pos_params_validates_tracking_and_move(simulated_robot):
+    robot, module, _state = simulated_robot
+    robot.device_id = 7
+    state = {"status": 0, "actual": (0.01, 0.1, 1.0, 0), "mode": None}
+
+    def set_move(v, a, j, device_id):
+        state["mode"] = "move"
+        return state["status"]
+
+    def set_track(v, a, j, device_id):
+        state["mode"] = "track"
+        return state["status"]
+
+    module.drd.setPosMoveParam = set_move
+    module.drd.setPosTrackParam = set_track
+    module.drd.getPosMoveParam = lambda device_id: state["actual"]
+    module.drd.getPosTrackParam = lambda device_id: state["actual"]
+
+    assert robot.set_pos_param(0.01, 0.1, 1.0) is True
+    assert state["mode"] == "move"
+    assert robot.set_pos_param(0.01, 0.1, 1.0, tracking=True) is True
+    assert state["mode"] == "track"
+    assert robot.set_tracking_params_checked(0.01, 0.1, 1.0) == (0.01, 0.1, 1.0)
+
+    state["status"] = -1
+    with pytest.raises(RuntimeError, match="setPosMoveParam failed"):
+        robot.set_pos_param(0.01, 0.1, 1.0)
+    state["status"] = 0
+    state["actual"] = (0.02, 0.1, 1.0, 0)
+    with pytest.raises(RuntimeError, match="exceeds approved"):
+        robot.set_pos_param(0.01, 0.1, 1.0)
+    state["actual"] = (0.01, 0.1, 1.0, None)
+    with pytest.raises(RuntimeError, match="readback failed"):
+        robot.set_pos_param(0.01, 0.1, 1.0, tracking=True)
+
+
+def test_original_set_force_returns_acknowledgment_and_rejects_errors(simulated_robot):
+    robot, module, _state = simulated_robot
+    captured = []
+    module.dhd.setForce = lambda target: captured.append(target) or 0
+    assert robot.set_force([0, 0.1, 0]) == 0
+    assert captured == [[0.0, 0.1, 0.0]]
+    module.dhd.setForce = lambda target: -1
+    with pytest.raises(RuntimeError, match="setForce failed"):
+        robot.set_force([0, 0.1, 0])
