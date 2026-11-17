@@ -145,18 +145,18 @@ def test_checked_state_reads_three_vectors_and_rejects_sdk_errors(simulated_robo
         robot.read_checked_state()
 
 
-def test_checked_tracking_rejects_negative_status_and_invalid_targets(simulated_robot):
+def test_tracking_rejects_negative_status_and_invalid_targets(simulated_robot):
     robot, module, state = simulated_robot
-    assert robot.track_pos_checked([0.01, 0, 0]) is True
+    assert robot.set_pos([0.01, 0, 0], tracking=True) is True
     assert state["position"] == [0.01, 0, 0]
     module.drd.trackPos = lambda _: -1
     with pytest.raises(RuntimeError, match="trackPos failed"):
-        robot.track_pos_checked([0.01, 0, 0])
+        robot.set_pos([0.01, 0, 0], tracking=True)
     with pytest.raises(ValueError, match="three finite"):
-        robot.track_pos_checked([float("inf"), 0, 0])
+        robot.set_pos([float("inf"), 0, 0], tracking=True)
 
 
-def test_checked_tracking_limits_verify_sdk_status_and_readback(simulated_robot):
+def test_tracking_limits_verify_sdk_status_and_readback(simulated_robot):
     robot, module, _state = simulated_robot
     robot.device_id = 7
     state = {"status": 0, "params": (0.01, 0.1, 1.0, 0)}
@@ -167,19 +167,19 @@ def test_checked_tracking_limits_verify_sdk_status_and_readback(simulated_robot)
 
     module.drd.setPosTrackParam = set_params
     module.drd.getPosTrackParam = lambda device: state["params"]
-    assert robot.set_tracking_params_checked(.01, .1, 1.0) == (.01, .1, 1.0)
+    assert robot.set_pos_param(.01, .1, 1.0, tracking=True) == (.01, .1, 1.0, tracking=True)
     state["status"] = -1
     with pytest.raises(RuntimeError, match="setPosTrackParam failed"):
-        robot.set_tracking_params_checked(.01, .1, 1.0)
+        robot.set_pos_param(.01, .1, 1.0, tracking=True)
     state["status"] = 0
     state["params"] = (.02, .1, 1.0, 0)
     with pytest.raises(RuntimeError, match="exceeds approved"):
-        robot.set_tracking_params_checked(.01, .1, 1.0)
+        robot.set_pos_param(.01, .1, 1.0, tracking=True)
     state["params"] = (.01, .1, 1.0, -1)
     with pytest.raises(RuntimeError, match="readback failed"):
-        robot.set_tracking_params_checked(.01, .1, 1.0)
+        robot.set_pos_param(.01, .1, 1.0, tracking=True)
     with pytest.raises(ValueError, match="finite positive"):
-        robot.set_tracking_params_checked(0, .1, 1.0)
+        robot.set_pos_param(0, .1, 1.0, tracking=True)
 
 
 def test_native_recording_reports_sdk_failure(simulated_robot):
@@ -334,7 +334,7 @@ def test_original_set_pos_checks_tracking_and_discrete_movement(simulated_robot)
     with pytest.raises(RuntimeError, match="trackPos failed"):
         robot.set_pos([0, 0, 0], tracking=True)
     with pytest.raises(RuntimeError, match="trackPos failed"):
-        robot.track_pos_checked([0, 0, 0])
+        robot.set_pos([0, 0, 0], tracking=True)
     with pytest.raises(ValueError, match="three finite"):
         robot.set_pos([float("inf"), 0, 0], tracking=True)
 
@@ -361,7 +361,7 @@ def test_original_set_pos_params_validates_tracking_and_move(simulated_robot):
     assert state["mode"] == "move"
     assert robot.set_pos_param(0.01, 0.1, 1.0, tracking=True) is True
     assert state["mode"] == "track"
-    assert robot.set_tracking_params_checked(0.01, 0.1, 1.0) == (0.01, 0.1, 1.0)
+    assert robot.get_pos_param(tracking=True) == (0.01, 0.1, 1.0, 0)
 
     state["status"] = -1
     with pytest.raises(RuntimeError, match="setPosMoveParam failed"):
