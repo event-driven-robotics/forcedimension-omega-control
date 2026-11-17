@@ -115,3 +115,25 @@ def test_open_rejects_invalid_selection_without_sdk_call(device):
     with pytest.raises(ValueError):
         robot.open(expected_serial="42")
     assert not calls
+
+
+def test_original_serial_number_checks_sdk_and_preserves_return_type(device):
+    module, fd, calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+    robot.open()
+    assert robot.get_serial_number() == 42
+    assert robot.get_serial_number_checked() == 42
+
+    fd.dhd.getSerialNumber = lambda _id: -1
+    with pytest.raises(RuntimeError, match="getSerialNumber failed"):
+        robot.get_serial_number()
+    with pytest.raises(RuntimeError, match="getSerialNumber failed"):
+        robot.get_serial_number_checked()
+
+
+def test_serial_number_requires_open_device(device):
+    module, _fd, calls = device
+    robot = module.OmegaRobot(auto_open=False, auto_initialize=False)
+    with pytest.raises(RuntimeError, match="not open"):
+        robot.get_serial_number()
+    assert not calls
