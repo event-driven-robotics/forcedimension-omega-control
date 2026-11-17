@@ -3,17 +3,27 @@
 CAUTION: Initialization and movement can move the device. Supervise the robot
 and verify these positions are appropriate for the attached workspace.
 """
+import argparse
+
 from omega_control import OmegaRobot
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--device-index", type=int, required=True)
+    parser.add_argument("--serial", type=int, required=True)
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     robot = OmegaRobot(
         verbose=True, auto_open=False, auto_initialize=False
     )
     filename = None
     try:
-        robot.open()
-        print(f"Connected serial: {robot.get_serial_number()}")
+        robot.open(device_index=args.device_index, expected_serial=args.serial)
+        print(f"Verified serial: {robot.get_serial_number()}")
         robot.initialize()  # May move during reference initialization.
 
         # True means DRD accepted the command, not measured arrival.
