@@ -11,6 +11,8 @@ from omega_control import OmegaRobot
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--device-index", type=int, required=True)
+    parser.add_argument("--serial", type=int, required=True)
     parser.add_argument("--vmax", type=float, default=0.05, help="Velocity limit in m/s")
     parser.add_argument(
         "--amax", type=float, default=0.1, help="Acceleration limit in m/s^2"
@@ -23,9 +25,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    robot = OmegaRobot(verbose=True)
+    robot = OmegaRobot(verbose=True, auto_open=False, auto_initialize=False)
+    initialized = False
 
     try:
+        robot.open(device_index=args.device_index, expected_serial=args.serial)
+        print(f"Verified serial: {robot.get_serial_number()}")
+        robot.initialize()
+        initialized = True
+
         original_move = robot.get_pos_param()
         original_track = robot.get_pos_param(tracking=True)
 
@@ -51,15 +59,19 @@ def main() -> None:
         print("Updated move parameters:", robot.get_pos_param())
         print("Updated tracking parameters:", robot.get_pos_param(tracking=True))
     finally:
-        # Restore the values captured during initialization, even if changing
-        # one of the parameter sets fails.
+        # Restore limits only when initialization established defaults.
         try:
-            robot.set_default_pos_param()
+            if initialized:
+                try:
+                    robot.set_default_pos_param()
+                finally:
+                    robot.set_default_pos_param(tracking=True)
         finally:
-            try:
-                robot.set_default_pos_param(tracking=True)
-            finally:
-                robot.close()
+            if robot.is_open():
+                try:
+                    robot.stop()
+                finally:
+                    robot.close()
 
 
 if __name__ == "__main__":
