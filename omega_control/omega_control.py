@@ -420,24 +420,18 @@ class OmegaRobot:
         return self.device_id
 
     def get_serial_number(self):
-        """
-        Return the device serial number.
-
-        :returns:
-            The serial number on success.
-        """
-
-        serial_number = dhd.getSerialNumber(self.device_id)
-        return serial_number
-
-    def get_serial_number_checked(self):
-        """Return the opened device serial number or raise on SDK failure."""
+        """Return the opened device serial number; raise on failed SDK read."""
         if not self._is_open:
             raise RuntimeError("Device is not open")
-        serial = dhd.getSerialNumber(self.device_id)
+        with self._sdk_lock:
+            serial = dhd.getSerialNumber(self.device_id)
         if type(serial) is not int or serial < 0:
             raise RuntimeError(f"DHD getSerialNumber failed: {serial!r}")
         return serial
+
+    def get_serial_number_checked(self):
+        """Compatibility alias; get_serial_number() is now checked."""
+        return self.get_serial_number()
 
     def get_control_freq(self):
         """
@@ -583,169 +577,98 @@ class OmegaRobot:
 
         self.set_pos([0.0, 0.0, 0.0])
 
-    def get_pos(self):
-        """
-        Retrieve the position of the end-effector about the X, Y, and
-        Z axes. Please refer to your device user manual for more
-        information on your device coordinate system.
-        """
+    @staticmethod
+    def _validated_xyz(target, *, label="Tracking target"):
+        """Validate a three-dimensional finite target before calling the SDK."""
+        try:
+            values = tuple(float(value) for value in target)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{label} must contain three finite XYZ values") from exc
+        if len(values) != 3 or not all(math.isfinite(value) for value in values):
+            raise ValueError(f"{label} must contain three finite XYZ values")
+        return list(values)
 
-        dhd.getPosition(self.pos)
-        return self.pos
+    @staticmethod
+    def _read_vector_checked(reader, name):
+        """Decode one DHD read with a checked return code and finite samples.
+
+        The caller must hold _sdk_lock. Do not mutate live cached vectors until
+        all values have been verified.
+        """
+        values = [math.nan, math.nan, math.nan]
+        status = reader(values)
+        if type(status) is not int or status != 0:
+            raise RuntimeError(f"DHD {name} read failed with status {status!r}")
+        if not all(math.isfinite(value) for value in values):
+            raise RuntimeError(f"DHD {name} read returned non-finite values")
+        return [float(value) for value in values]
+
+    def get_pos(self):
+        """Return the position list, raising on failed or invalid DHD reads."""
+        with self._sdk_lock:
+            values = self._read_vector_checked(dhd.getPosition, "position")
+            self.pos = values
+            return self.pos
 
     def get_vel(self):
-        """
-        Retrieve the estimated instanteous linear velocity (in [m/s]).
-        """
-
-        dhd.getLinearVelocity(self.vel)
-        return self.vel
+        """Return the velocity list, raising on failed or invalid DHD reads."""
+        with self._sdk_lock:
+            values = self._read_vector_checked(dhd.getLinearVelocity, "velocity")
+            self.vel = values
+            return self.vel
 
     def get_force(self):
-        """
-        Retrieve the force vector applied to the end-effector (in
-        [N]) about the X, Y, and Z axes Please refer to your device
-        user manual for more information on your device coordinate
-        system.
-        """
-
-        dhd.getForce(self.force)
-        return self.force
+        """Return the force list, raising on failed or invalid DHD reads."""
+        with self._sdk_lock:
+            values = self._read_vector_checked(dhd.getForce, "force")
+            self.force = values
+            return self.force
 
     def read_checked_state(self):
-        """Read position, velocity and force, rejecting failed DHD calls.
+        """Read position, velocity and force together under a single SDK lock.
 
-        This additive API is intended for safety-supervised applications.
-        Unlike the historical get_pos/get_vel/get_force convenience methods,
-        it verifies each DHD return code and the finiteness of all values.
-        It does NOT prove an independently calibrated sensor clock or a
-        safety-rated device watchdog.
+        This combined snapshot remains useful for recording. Its individual
+        DHD reads share the checks used by get_pos/get_vel/get_force. It is
+        not a safety-rated watchdog or an independent hardware timestamp.
         """
-        # A single lock coordinates checked supervision and the recorder.
-        # The SDK's general thread-safety is not assumed.
         with self._sdk_lock:
-            result = []
-            for name, reader in (
-                ("position", dhd.getPosition),
-                ("velocity", dhd.getLinearVelocity),
-                ("force", dhd.getForce),
-            ):
-                values = [math.nan, math.nan, math.nan]
-                status = reader(values)
-                if type(status) is not int or status != 0:
-                    raise RuntimeError(f"DHD {name} read failed with status {status!r}")
-                if not all(math.isfinite(value) for value in values):
-                    raise RuntimeError(f"DHD {name} read returned non-finite values")
-                result.append(tuple(float(value) for value in values))
-            self.pos, self.vel, self.force = (list(item) for item in result)
-            return tuple(result)
+            position = self._read_vector_checked(dhd.getPosition, "position")
+            velocity = self._read_vector_checked(dhd.getLinearVelocity, "velocity")
+            force = self._read_vector_checked(dhd.getForce, "force")
+            self.pos, self.vel, self.force = position, velocity, force
+            return tuple(tuple(values) for values in (position, velocity, force))
 
     def track_pos_checked(self, target):
-        """Issue a DRD tracking target and require an explicit success code."""
-        values = tuple(float(value) for value in target)
-        if len(values) != 3 or not all(math.isfinite(value) for value in values):
-            raise ValueError("Tracking target must contain three finite XYZ values")
-        with self._sdk_lock:
-            status = drd.trackPos(list(values))
-            if type(status) is not int or status != 0:
-                raise RuntimeError(f"DRD trackPos failed with status {status!r}")
-            return True
+        """Compatibility alias; set_pos(..., tracking=True) is now checked."""
+        return self.set_pos(target, tracking=True)
 
     def set_tracking_params_checked(self, vmax, amax, jerk):
-        """Set DRD tracking bounds with checked status and measured readback."""
-        requested = (vmax, amax, jerk)
-        if not all(
-            isinstance(value, (int, float))
-            and math.isfinite(value) and value > 0
-            for value in requested
-        ):
-            raise ValueError("Tracking limits must be finite positive numbers")
-        with self._sdk_lock:
-            status = drd.setPosTrackParam(*requested, self.device_id)
-            if type(status) is not int or status != 0:
-                raise RuntimeError(f"DRD setPosTrackParam failed with status {status!r}")
-            actual = drd.getPosTrackParam(self.device_id)
-            if len(actual) != 4 or type(actual[3]) is not int or actual[3] != 0:
-                raise RuntimeError("DRD tracking readback failed")
-            if any(
-                not math.isfinite(value) or value <= 0 or value > limit * (1 + 1e-4)
-                for value, limit in zip(actual[:3], requested)
-            ):
-                raise RuntimeError("DRD tracking readback exceeds approved limits")
-            return tuple(float(value) for value in actual[:3])
+        """Compatibility alias; set_pos_param() is now checked.
+
+        Retain this method's historical readback-tuple return contract.
+        """
+        return self._set_pos_params_checked(vmax, amax, jerk, tracking=True)
 
     def set_pos(self, target: list[float], block: bool = True, tracking: bool = False):
+        """Move or track the end-effector, verifying the DRD acknowledgment.
+
+        Preserve the historical signature and True result on success. A
+        rejected SDK command raises RuntimeError even if a caller ignores
+        this return value. True denotes SDK acceptance, NOT verified motion
+        completion or a safety-rated physical stop.
         """
-        Moves the robot end-effector to a desired Cartesian position.
-
-        The motion follows a straight-line trajectory with smooth 
-        acceleration and deceleration profiles. These profiles can be tuned 
-        through the device's trajectory generation parameters.
-
-        .. note::
-            The motion paths generated by this function are **not guaranteed 
-            to be continuous** if a command is interrupted by another call to 
-            this function while still in progress.  
-            To ensure trajectory continuity, use 
-            :func:`forcedimension_core.drd.trackPos()`.  
-            See the :ref:`regulation` section for more details.
-
-        If ``tracking`` is True, the function commands a continuous position 
-        update instead of a blocking movement.
-
-        :param list[float] target:
-            Target Cartesian position ``[px, py, pz]`` in meters, where each 
-            component corresponds to the X, Y, and Z axes respectively.
-
-        :param bool block:
-            If True (default), the function blocks until motion is complete.  
-            If False, the command returns immediately.
-
-        :param bool tracking:
-            If True, enables continuous trajectory tracking mode instead of 
-            a discrete move.
-
-        :raises RuntimeError:
-            If the command fails or the robot is not properly initialized.
-
-        :returns:
-            True on success.
-            
-        Notes
-        -----
-        - Use `block=True` for discrete point-to-point movements
-        - Use `tracking=True` for smooth continuous trajectories
-        - Position coordinates are in meters relative to device origin
-        - Z-axis typically points upward from the device base
-        
-        Examples
-        --------
-        >>> # Move to a specific position and wait for completion
-        >>> robot.set_pos([0.05, 0.02, -0.01])  # 5cm right, 2cm forward, 1cm down
-        >>> 
-        >>> # Start movement but don't wait for completion
-        >>> robot.set_pos([0.0, 0.0, 0.05], block=False)
-        >>> 
-        >>> # Continuous tracking (for smooth trajectories)
-        >>> robot.set_pos([0.03, 0.0, 0.0], tracking=True)
-        """
-        try:
-            if not tracking:
-                drd.moveToPos(target, block=block)
-                if self.verbose:
-                    print(f"Moving to {target} (block={block})")
+        values = self._validated_xyz(target)
+        operation = "trackPos" if tracking else "moveToPos"
+        with self._sdk_lock:
+            if tracking:
+                status = drd.trackPos(values)
             else:
-                drd.trackPos(target)
-                if self.verbose:
-                    print(f"Tracking position {target}")
-
-            return True
-
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to move to {target}: {e}")
-            raise RuntimeError(
-                f"Failed to move to target position: {e}") from e
+                status = drd.moveToPos(values, block=block)
+        if type(status) is not int or status != 0:
+            raise RuntimeError(f"DRD {operation} failed with status {status!r}")
+        if self.verbose:
+            print(f"{'Tracking' if tracking else 'Moving to'} {values}")
+        return True
 
     def hold(self):
         """
@@ -760,126 +683,53 @@ class OmegaRobot:
         return result
 
     def get_pos_param(self, tracking: bool = False):
+        """Return (vmax, amax, jerk, status), checking the DRD readback."""
+        operation = "getPosTrackParam" if tracking else "getPosMoveParam"
+        with self._sdk_lock:
+            params = (drd.getPosTrackParam(self.device_id) if tracking
+                      else drd.getPosMoveParam(self.device_id))
+        if (not isinstance(params, (tuple, list)) or len(params) != 4
+                or type(params[3]) is not int or params[3] != 0
+                or not all(isinstance(v, (int, float)) and math.isfinite(v)
+                           for v in params[:3])):
+            raise RuntimeError(f"DRD {operation} readback failed: {params!r}")
+        return params
+
+    def _set_pos_params_checked(self, vmax, amax, jerk, *, tracking):
+        requested = (vmax, amax, jerk)
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value) and value > 0
+            for value in requested
+        ):
+            raise ValueError("Motion/tracking limits must be finite positive numbers")
+        setter = drd.setPosTrackParam if tracking else drd.setPosMoveParam
+        operation = "setPosTrackParam" if tracking else "setPosMoveParam"
+        with self._sdk_lock:
+            status = setter(*requested, self.device_id)
+            if type(status) is not int or status != 0:
+                raise RuntimeError(f"DRD {operation} failed with status {status!r}")
+            actual = self.get_pos_param(tracking=tracking)
+            if any(
+                value <= 0 or value > limit * (1 + 1e-4)
+                for value, limit in zip(actual[:3], requested)
+            ):
+                raise RuntimeError("DRD tracking/move readback exceeds approved limits")
+        return tuple(float(value) for value in actual[:3])
+
+    def set_pos_param(self, vmax: float, amax: float, jerk: float,
+                      tracking: bool = False) -> bool:
+        """Set motion or tracking bounds, validate SDK status and readback.
+
+        Returns True on success, preserving existing callers. Raises on a
+        failed write, missing acknowledgment or non-conforming readback.
         """
-        Retrieves the Cartesian trajectory generation parameters for the robot.
-
-        Depending on the ``tracking`` flag, this method returns either the 
-        standard motion trajectory parameters or the tracking trajectory 
-        parameters currently configured on the device.
-
-        :param bool tracking:
-            If False (default), retrieves standard motion parameters using 
-            :func:`forcedimension_core.drd.getPosMoveParam`.  
-            If True, retrieves tracking trajectory parameters using 
-            :func:`forcedimension_core.drd.getPosTrackParam`.
-
-        :returns:
-            A tuple ``(v_max, a_max, jerk_max, err)``, where:
-
-            - **v_max** (*float*): Maximum velocity in m/s  
-            - **a_max** (*float*): Maximum acceleration in m/s²  
-            - **jerk_max** (*float*): Maximum jerk in m/s³  
-            - **err** (*int*): 0 on success, -1 otherwise
-
-        :raises RuntimeError:
-            If parameter retrieval fails.
-        """
-
-        try:
-            if not tracking:
-                params = drd.getPosMoveParam(self.device_id)
-                if self.verbose:
-                    print(
-                        f"Retrieved motion parameters: "
-                        f"v_max={params[0]:.3f} m/s, a_max={params[1]:.3f} m/s², jerk={params[2]:.3f} m/s³."
-                    )
-            else:
-                params = drd.getPosTrackParam(self.device_id)
-                if self.verbose:
-                    print(
-                        f"Retrieved tracking parameters: "
-                        f"v_max={params[0]:.3f} m/s, a_max={params[1]:.3f} m/s², jerk={params[2]:.3f} m/s³."
-                    )
-
-            return params
-
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to retrieve position parameters: {e}")
-            raise RuntimeError(
-                f"Failed to retrieve position parameters: {e}") from e
-
-    def set_pos_param(self, vmax: float, amax: float, jerk: float, tracking: bool = False) -> bool:
-        """
-        Sets the Cartesian trajectory generation parameters for the robot.
-
-        This function updates the motion or tracking trajectory generation
-        parameters that control the maximum velocity, acceleration, and jerk 
-        of the end-effector motion.
-
-        :param float vmax:
-            Maximum velocity in meters per second (m/s).
-
-        :param float amax:
-            Maximum acceleration in meters per second squared (m/s²).
-
-        :param float jerk:
-            Maximum jerk in meters per second cubed (m/s³).
-
-        :param bool tracking:
-            If False (default), sets standard motion parameters using 
-            :func:`forcedimension_core.drd.setPosMoveParam`.  
-            If True, sets tracking parameters using 
-            :func:`forcedimension_core.drd.setPosTrackParam`.
-
-        :returns:
-            True on success, False otherwise.
-
-        :raises RuntimeError:
-            If parameter setting fails.
-            
-        Notes
-        -----
-        - Lower values create smoother, slower movements
-        - Higher values create faster but potentially less smooth movements
-        - Jerk limits control smoothness of acceleration changes
-        - Use different parameters for motion vs tracking modes
-        
-        Examples
-        --------
-        >>> # Slow, smooth movements for precision tasks
-        >>> robot.set_pos_param(vmax=0.1, amax=0.5, jerk=2.0)
-        >>> 
-        >>> # Fast movements for efficiency
-        >>> robot.set_pos_param(vmax=0.5, amax=2.0, jerk=10.0)
-        >>> 
-        >>> # Set tracking parameters for continuous motion
-        >>> robot.set_pos_param(vmax=0.2, amax=1.0, jerk=5.0, tracking=True)
-        """
-
-        try:
-            if not tracking:
-                drd.setPosMoveParam(vmax, amax, jerk, self.device_id)
-                if self.verbose:
-                    print(
-                        f"Set motion parameters: "
-                        f"v_max={vmax:.3f} m/s, a_max={amax:.3f} m/s², jerk={jerk:.3f} m/s³."
-                    )
-            else:
-                drd.setPosTrackParam(vmax, amax, jerk, self.device_id)
-                if self.verbose:
-                    print(
-                        f"Set tracking parameters: "
-                        f"v_max={vmax:.3f} m/s, a_max={amax:.3f} m/s², jerk={jerk:.3f} m/s³."
-                    )
-
-            return True
-
-        except Exception as e:
-            if self.verbose:
-                print(f"Failed to set position parameters: {e}")
-            raise RuntimeError(
-                f"Failed to set position parameters: {e}") from e
+        self._set_pos_params_checked(vmax, amax, jerk, tracking=tracking)
+        if self.verbose:
+            print(f"Set {'tracking' if tracking else 'move'} parameters: "
+                  f"vmax={vmax}, amax={amax}, jerk={jerk}")
+        return True
 
     def set_default_pos_param(self, tracking: bool = False) -> bool:
         """
@@ -933,17 +783,19 @@ class OmegaRobot:
                 f"Failed to set default position parameters: {e}") from e
 
     def set_force(self, target):
-        """
-        Set the desired force (in [N]) about the X, Y, and Z axes to
-        be applied to the end-effector of the device.
+        """Set XYZ force and return 0 on SDK success; raise otherwise.
 
-        :param VectorLike f:
-            Translation force vector (fx, fy, fz) (in [N]).
+        Older callers may ignore the added return code. The acknowledgment
+        does not independently verify the force delivered by the device.
         """
-
-        dhd.setForce(target)
+        values = self._validated_xyz(target, label="Force target")
+        with self._sdk_lock:
+            status = dhd.setForce(values)
+        if type(status) is not int or status != 0:
+            raise RuntimeError(f"DHD setForce failed with status {status!r}")
         if self.verbose:
-            print(f"Setting target force to {target}.")
+            print(f"Setting target force to {values}.")
+        return 0
 
     def preload(
         self,
