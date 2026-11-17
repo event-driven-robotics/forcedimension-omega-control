@@ -17,7 +17,7 @@ def main() -> None:
         robot.initialize()  # May move during reference initialization.
 
         # True means DRD accepted the command, not measured arrival.
-        print("Origin command acknowledged:", robot.to_origin() is None)
+        robot.to_origin()  # Raises if the underlying move command is rejected.
         robot.start_recording(freq=1000)
         try:
             for target in (
